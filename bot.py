@@ -3,6 +3,7 @@ import discord
 from discord.ext import commands
 import json
 import asyncio
+import os
 
 with open('setting.json',mode='r',encoding='utf8')as jflie:
     jdata = json.load(jflie)
@@ -21,7 +22,12 @@ async def say(ctx:commands.Context):
 
 
 async def setup():
+    for filename in os.listdir("./cogs"):
+        if filename.endswith(".py"):
+            await bot.load_extension(f"cogs.{filename[:-3]}")
     await bot.start(jdata["TOKEN"])
 
-asyncio.run(setup())
-#bot.run(jdata['TOKEN'])
+
+if __name__ == "__main__":
+    asyncio.run(setup())
+# bot.run(jdata['TOKEN'])
