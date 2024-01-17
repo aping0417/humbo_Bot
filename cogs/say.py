@@ -12,12 +12,19 @@ class Say(Cog_Extension):
         await channel.send(f"{member}嗚呼!!有人來囉")
 
     @commands.command()
-    async def where(self, ctx: commands.Context):
-        member = ctx.author
-        await ctx.send(f"{ctx.author.mention}在{member.voice.channel.mention}")
-
-    async def who(self, ctx: commands.context):
+    async def where(self, ctx, extension:discord.member.Member):
+        #user = [ctx.message.raw_mentions]
+        #memberid = user[0]
+        member = extension
+        await ctx.send(f'{extension.mention}在{member.voice.channel.mention}')
+        #await ctx.send(type(member))
+    @commands.command()
+    async def who(self, ctx: commands.Context):
         await ctx.send(ctx.author())
+
+    @commands.command()
+    async def say(self, ctx: commands.Context):
+        await ctx.send(ctx.message.content)
 
 
 async def setup(bot):

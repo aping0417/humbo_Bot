@@ -17,10 +17,6 @@ async def on_ready():
 
 
 @bot.command()
-async def say(ctx: commands.Context):
-    await ctx.send(ctx.message.content)
-
-@bot.command()
 async def load(ctx,extension):
     await bot.load_extension(f'cogs.{extension}')
     await ctx.send(f'loaded {extension} done.')
