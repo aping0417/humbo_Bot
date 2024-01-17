@@ -20,6 +20,21 @@ async def on_ready():
 async def say(ctx: commands.Context):
     await ctx.send(ctx.message.content)
 
+@bot.command()
+async def load(ctx,extension):
+    await bot.load_extension(f'cogs.{extension}')
+    await ctx.send(f'loaded {extension} done.')
+
+@bot.command()
+async def unload(ctx,extension):
+    await bot.unload_extension(f'cogs.{extension}')
+    await ctx.send(f'un-loaded {extension} done.')
+
+@bot.command()
+async def reload(ctx,extension):
+    await bot.reload_extension(f'cogs.{extension}')
+    await ctx.send(f're-loaded {extension} done.')
+
 
 async def setup():
     for filename in os.listdir("./cogs"):
