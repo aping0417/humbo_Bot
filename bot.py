@@ -1,6 +1,7 @@
 # --coding:utf-8--**
 import discord
 from discord.ext import commands
+from discord import app_commands
 import json
 import asyncio
 import os
@@ -13,23 +14,26 @@ bot = commands.Bot(intents=discord.Intents.all(), command_prefix="+")
 
 @bot.event
 async def on_ready():
+    slash = await bot.tree.sync()
     print("憨包 啟動")
 
 
 @bot.command()
-async def load(ctx,extension):
-    await bot.load_extension(f'cogs.{extension}')
-    await ctx.send(f'loaded {extension} done.')
+async def load(ctx, extension):
+    await bot.load_extension(f"cogs.{extension}")
+    await ctx.send(f"loaded {extension} done.")
+
 
 @bot.command()
-async def unload(ctx,extension):
-    await bot.unload_extension(f'cogs.{extension}')
-    await ctx.send(f'un-loaded {extension} done.')
+async def unload(ctx, extension):
+    await bot.unload_extension(f"cogs.{extension}")
+    await ctx.send(f"un-loaded {extension} done.")
+
 
 @bot.command()
-async def reload(ctx,extension):
-    await bot.reload_extension(f'cogs.{extension}')
-    await ctx.send(f're-loaded {extension} done.')
+async def reload(ctx, extension):
+    await bot.reload_extension(f"cogs.{extension}")
+    await ctx.send(f"re-loaded {extension} done.")
 
 
 async def setup():
