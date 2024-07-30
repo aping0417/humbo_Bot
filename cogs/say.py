@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from discord import app_commands
 import json
 import asyncio
 from core.classes import Cog_Extension
@@ -12,7 +13,7 @@ class Say(Cog_Extension):
         await channel.send(f"{member}嗚呼!!有人來囉")
 
     @commands.command()
-    async def where(self, ctx, extension: discord.Member):
+    async def oldwhere(self, ctx, extension: discord.Member):
         # user = [ctx.message.raw_mentions]
         # memberid = user[0]
         member = extension
@@ -20,12 +21,18 @@ class Say(Cog_Extension):
         # await ctx.send(type(member))
 
     @commands.command()
-    async def who(self, ctx: commands.Context):
+    async def oldwho(self, ctx: commands.Context):
         await ctx.send(ctx.author())
 
     @commands.command()
-    async def say(self, ctx: commands.Context):
+    async def oldsay(self, ctx: commands.Context):
         await ctx.send(ctx.message.content)
+
+    @app_commands.command(name="where", description="找人在哪")
+    async def where(self, ctx, extension: discord.Member): ...
+
+    @app_commands.command(name="say", description="匿名留言")
+    async def say(self, ctx: commands.Context): ...
 
 
 async def setup(bot):
