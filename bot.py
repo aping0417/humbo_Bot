@@ -15,7 +15,7 @@ bot = commands.Bot(intents=discord.Intents.all(), command_prefix="+")
 @bot.event
 async def on_ready():
     slash = await bot.tree.sync()
-    print("憨包 啟動")
+    print("雪寶 啟動")
 
 
 @bot.command()
