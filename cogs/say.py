@@ -33,7 +33,7 @@ class Say(Cog_Extension):
 
     @app_commands.command(name="say", description="匿名留言")
     async def say(self, interaction: discord.Interaction, ctx: str):
-        await interaction.response.edit_message(ctx)
+        await interaction.response.send_message(ctx)
 
 
 async def setup(bot):
