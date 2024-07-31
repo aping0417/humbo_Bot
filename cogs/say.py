@@ -25,15 +25,17 @@ class Say(Cog_Extension):
         await ctx.send(ctx.author())
 
     @commands.command()
-    async def oldsay(self, ctx: commands.Context):
-        await ctx.send(ctx.message.content)
+    async def oldsay(self, ctx: commands.Context, *, msg):
+        await ctx.message.delete()
+        await ctx.send(msg)
 
     @app_commands.command(name="where", description="找人在哪")
     async def where(self, ctx, extension: discord.Member): ...
 
     @app_commands.command(name="say", description="匿名留言")
-    async def say(self, interaction: discord.Interaction, ctx: str):
-        await interaction.response.send_message(ctx)
+    async def say(self, interaction: discord.Interaction, msg: str):
+        await interaction.response.send_message("訊息成功", ephemeral=True)
+        await interaction.followup.send(msg)
 
 
 async def setup(bot):
