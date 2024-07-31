@@ -22,8 +22,8 @@ class Math(Cog_Extension):
         else:
             await ctx.send(f"不能一次打3個以上的數字操")
 
-    @app_commands.command(name="choosenumber", description="隨機選數字")
-    async def choosenumber(self, ctx: commands.Context, *numbers: int): ...
+    # @app_commands.command(name="choosenumber", description="隨機選數字")
+    # async def choosenumber(self, ctx: commands.Context, *numbers: int): ...
 
 
 async def setup(bot):
