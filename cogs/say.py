@@ -34,8 +34,12 @@ class Say(Cog_Extension):
 
     @app_commands.command(name="say", description="匿名留言")
     async def say(self, interaction: discord.Interaction, msg: str):
-        await interaction.response.send_message("訊息成功", ephemeral=True)
-        await interaction.followup.send(msg)
+        await interaction.response.send_message(
+            "訊息成功",
+            ephemeral=True,
+        )
+        await interaction.channel.send(msg)
+        # await interaction.followup.send(msg, silent=True)
 
 
 async def setup(bot):
