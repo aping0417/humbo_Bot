@@ -30,7 +30,10 @@ class Say(Cog_Extension):
         await ctx.send(msg)
 
     @app_commands.command(name="where", description="找人在哪")
-    async def where(self, ctx, extension: discord.Member): ...
+    async def where(self, interaction: discord.Interaction, member: discord.Member):
+        await interaction.response.send_message(
+            f"{member.mention}在{member.voice.channel.mention}"
+        )
 
     @app_commands.command(name="say", description="匿名留言")
     async def say(self, interaction: discord.Interaction, msg: str):
