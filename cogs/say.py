@@ -32,6 +32,7 @@ class Say(Cog_Extension):
     @app_commands.command(name="where", description="找人在哪")
     async def where(self, ctx, extension: discord.Member): ...
 
+    # 1
     @app_commands.command(name="say", description="匿名留言")
     async def say(self, interaction: discord.Interaction, msg: str):
         await interaction.response.send_message(
