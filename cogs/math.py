@@ -22,8 +22,17 @@ class Math(Cog_Extension):
         else:
             await ctx.send(f"不能一次打3個以上的數字操")
 
-    # @app_commands.command(name="choosenumber", description="隨機選數字")
-    # async def choosenumber(self, ctx: commands.Context, *numbers: int): ...
+    @app_commands.command(name="choosenumber", description="隨機選數字")
+    async def choosenumber(self, interaction: discord.Interaction, numbers: str):
+        x = numbers.split(" ")
+        if len(x) == 1:
+            random_number = random.randint(1, int(x[0]))
+            await interaction.response.send_message(random_number)
+        elif len(x) == 2:
+            random_number = random.randint(int(x[0]), int(x[1]))
+            await interaction.response.send_message(random_number)
+        else:
+            await interaction.response.send_message(f"不能一次打3個以上的數字操")
 
 
 async def setup(bot):
