@@ -16,6 +16,7 @@ bot = commands.Bot(intents=discord.Intents.all(), command_prefix="+")
 async def on_ready():
     slash = await bot.tree.sync()
     print("雪寶 啟動")
+    print(f"裝了{len(slash)}個斜線")
 
 
 @bot.command()
@@ -34,6 +35,29 @@ async def unload(ctx, extension):
 async def reload(ctx, extension):
     await bot.reload_extension(f"cogs.{extension}")
     await ctx.send(f"re-loaded {extension} done.")
+
+
+@bot.tree.command(name="reload")
+async def newreload(interaction: discord.Interaction, extension: str):
+    await bot.reload_extension(f"cogs.{extension}")
+    await interaction.response.send_message(f"re-loaded {extension} done")
+
+
+@bot.tree.command(name="unload")
+async def newunload(interaction: discord.Interaction, extension: str):
+    await bot.unload_extension(f"cogs.{extension}")
+    await interaction.response.send_message(f"un-loaded {extension} done")
+
+
+@bot.tree.command(name="load")
+async def newload(interaction: discord.Interaction, extension: str):
+    await bot.load_extension(f"cogs.{extension}")
+    await interaction.response.send_message(f"loaded {extension} done")
+
+
+@bot.tree.command(name="hellow", description="test")
+async def hellow(interaction: discord.Interaction):
+    await interaction.response.send_message("hellow")
 
 
 async def setup():
