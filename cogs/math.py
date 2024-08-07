@@ -13,26 +13,28 @@ class Math(Cog_Extension):
         if len(numbers) == 1:
             x = numbers[0]
             random_number = random.randint(1, x)
-            await ctx.send(random_number)
+            await ctx.send(random_number, silent=True)
         elif len(numbers) == 2:
             x = numbers[0]
             y = numbers[1]
             random_number = random.randint(x, y)
-            await ctx.send(random_number)
+            await ctx.send(random_number, silent=True)
         else:
-            await ctx.send(f"不能一次打3個以上的數字操")
+            await ctx.send(f"不能一次打3個以上的數字操", silent=True)
 
-    @app_commands.command(name="choosenumber", description="隨機選數字")
-    async def choosenumber(self, interaction: discord.Interaction, numbers: str):
+    @app_commands.command(name="dice", description="隨機選數字")
+    async def dice(self, interaction: discord.Interaction, numbers: str):
         x = numbers.split(" ")
         if len(x) == 1:
             random_number = random.randint(1, int(x[0]))
-            await interaction.response.send_message(random_number)
+            await interaction.response.send_message(random_number, silent=True)
         elif len(x) == 2:
             random_number = random.randint(int(x[0]), int(x[1]))
-            await interaction.response.send_message(random_number)
+            await interaction.response.send_message(random_number, silent=True)
         else:
-            await interaction.response.send_message(f"不能一次打3個以上的數字操")
+            await interaction.response.send_message(
+                f"不能一次打3個以上的數字操", silent=True
+            )
 
 
 async def setup(bot):

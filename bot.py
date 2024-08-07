@@ -22,37 +22,37 @@ async def on_ready():
 @bot.command()
 async def load(ctx, extension):
     await bot.load_extension(f"cogs.{extension}")
-    await ctx.send(f"loaded {extension} done.")
+    await ctx.send(f" {extension} 已安裝完畢!", silent=True)
 
 
 @bot.command()
 async def unload(ctx, extension):
     await bot.unload_extension(f"cogs.{extension}")
-    await ctx.send(f"un-loaded {extension} done.")
+    await ctx.send(f" {extension} 以卸載完畢!", silent=True)
 
 
 @bot.command()
 async def reload(ctx, extension):
     await bot.reload_extension(f"cogs.{extension}")
-    await ctx.send(f"re-loaded {extension} done.")
+    await ctx.send(f" {extension} 以重裝完畢!", silent=True)
 
 
 @bot.tree.command(name="reload")
 async def newreload(interaction: discord.Interaction, extension: str):
     await bot.reload_extension(f"cogs.{extension}")
-    await interaction.response.send_message(f"re-loaded {extension} done")
+    await interaction.response.send_message(f" {extension} 以重裝完畢!", silent=True)
 
 
 @bot.tree.command(name="unload")
 async def newunload(interaction: discord.Interaction, extension: str):
     await bot.unload_extension(f"cogs.{extension}")
-    await interaction.response.send_message(f"un-loaded {extension} done")
+    await interaction.response.send_message(f" {extension} 以卸載完畢!", silent=True)
 
 
 @bot.tree.command(name="load")
 async def newload(interaction: discord.Interaction, extension: str):
     await bot.load_extension(f"cogs.{extension}")
-    await interaction.response.send_message(f"loaded {extension} done")
+    await interaction.response.send_message(f" {extension} 已安裝完畢!", silent=True)
 
 
 @bot.tree.command(name="hellow", description="test")

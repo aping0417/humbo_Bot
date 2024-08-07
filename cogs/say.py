@@ -17,7 +17,9 @@ class Say(Cog_Extension):
         # user = [ctx.message.raw_mentions]
         # memberid = user[0]
         member = extension
-        await ctx.send(f"{extension.mention}在{member.voice.channel.mention}")
+        await ctx.send(
+            f"{extension.mention}在{member.voice.channel.mention}", silent=True
+        )
         # await ctx.send(type(member))
 
     @commands.command()
@@ -32,7 +34,7 @@ class Say(Cog_Extension):
     @app_commands.command(name="where", description="找人在哪")
     async def where(self, interaction: discord.Interaction, member: discord.Member):
         await interaction.response.send_message(
-            f"{member.mention}在{member.voice.channel.mention}"
+            f"{member.mention}在{member.voice.channel.mention}", silent=True
         )
 
     # 1
