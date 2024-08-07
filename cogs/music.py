@@ -1,4 +1,5 @@
 import discord
+import discord.context_managers
 from discord.ext import commands
 from discord import app_commands
 import json
@@ -8,8 +9,18 @@ from core.classes import Cog_Extension
 
 
 class Music(Cog_Extension):
-    @app_commands.command(name="join", description="join to chanel")
-    async def join(self, interaction: discord.Interaction): ...
+    @app_commands.command(name="join", description="join to channel")
+    async def join(self, interaction: discord.Interaction):
+        # voice = discord.utils.get(discord.VoiceChannel)
+        voicechannel = interaction.user.voice.channel
+        await voicechannel.connect()
+        # await interaction.response.send_message(voicechannel.mention)
+
+    # @app_commands.command(name="join", description="join to chanel")
+    # async def join(self, interaction: discord.Interaction, member: discord.Member):
+    # await interaction.response.send_message(
+    # f"{member.mention}在{member.voice.channel.mention}", silent=True
+    # )
 
     # @app_commands.command()
     # async def play(): ...
