@@ -13,12 +13,14 @@ class Music(Cog_Extension):
     async def join(self, interaction: discord.Interaction):
 
         if interaction.user.voice == None:
-            await interaction.response.send_message("你不在任何語音頻道")
+            await interaction.response.send_message(
+                "你尚未進入任何語音頻道", silent=True
+            )
         else:
             voicechannel = interaction.user.voice.channel
             # await interaction.response.send_message(voicechannel.mention, silent=True)
             await voicechannel.connect()
-            await interaction.response.send_message("已進入語音頻道")
+            await interaction.response.send_message("已進入語音頻道", silent=True)
 
         # try:(報錯指令)
         # 連接到語音頻道
@@ -27,11 +29,16 @@ class Music(Cog_Extension):
         # except Exception as e:
         # await interaction.response.send_message(f"發生錯誤：{str(e)}")
 
-    # @app_commands.command(name="join", description="join to chanel")
-    # async def join(self, interaction: discord.Interaction, member: discord.Member):
-    # await interaction.response.send_message(
-    # f"{member.mention}在{member.voice.channel.mention}", silent=True
-    # )
+    @app_commands.command(name="leave", description="leave to channel")
+    async def leave(self, interaction: discord.Interaction):
+        voice_client = interaction.guild.voice_client
+        if voice_client is None:
+            await interaction.response.send_message(
+                "你尚未進入任何語音頻道", silent=True
+            )
+        else:
+            await voice_client.disconnect()
+            await interaction.response.send_message("已離開語音頻道", silent=True)
 
     # @app_commands.command()
     # async def play(): ...
