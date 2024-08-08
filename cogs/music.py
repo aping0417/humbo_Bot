@@ -11,10 +11,21 @@ from core.classes import Cog_Extension
 class Music(Cog_Extension):
     @app_commands.command(name="join", description="join to channel")
     async def join(self, interaction: discord.Interaction):
-        # voice = discord.utils.get(discord.VoiceChannel)
-        voicechannel = interaction.user.voice.channel
-        await voicechannel.connect()
-        # await interaction.response.send_message(voicechannel.mention)
+
+        if interaction.user.voice == None:
+            await interaction.response.send_message("你不在任何語音頻道")
+        else:
+            voicechannel = interaction.user.voice.channel
+            # await interaction.response.send_message(voicechannel.mention, silent=True)
+            await voicechannel.connect()
+            await interaction.response.send_message("已進入語音頻道")
+
+        # try:(報錯指令)
+        # 連接到語音頻道
+        # await voicechannel.connect()
+        # await interaction.response.send_message(f"已連接到 {voicechannel.name}。")
+        # except Exception as e:
+        # await interaction.response.send_message(f"發生錯誤：{str(e)}")
 
     # @app_commands.command(name="join", description="join to chanel")
     # async def join(self, interaction: discord.Interaction, member: discord.Member):
