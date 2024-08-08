@@ -2,6 +2,8 @@ import discord
 import discord.context_managers
 from discord.ext import commands
 from discord import app_commands
+import yt_dlp as youtube_dl
+from pytube import YouTube
 import json
 import asyncio
 import random
@@ -40,11 +42,43 @@ class Music(Cog_Extension):
             await voice_client.disconnect()
             await interaction.response.send_message("已離開語音頻道", silent=True)
 
-    # @app_commands.command()
-    # async def play(): ...
+    @app_commands.command(name="play", description="撥放音樂")
+    async def play(self, interaction: discord.Interaction, url: str):
+        try:
+            voicechannel = interaction.user.voice.channel
+            voice_client = interaction.guild.voice_client
+            if interaction.user.voice is None:
+                await interaction.response.send_message(
+                    "你沒有加入任何語音頻道", silent=True
+                )
+            else:
+                await voicechannel.connect()
+                ydl_opts = {
+                    "format": "bestaudio/best",
+                    "quiet": True,
+                    "extractaudio": True,
+                    "outtmpl": "downloads/%(title)s.%(ext)s",
+                    "noplaylist": True,
+                }
+                with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    url2 = info["formats"][0]["url"]
 
-    # @app_commands.command()
-    # async def pause(): ...
+                ffmpeg_options = {
+                    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+                    "options": "-vn",
+                }
+                # voice_client.stop()
+                voice_client.play(
+                    discord.FFmpegPCMAudio(url2, **ffmpeg_options),
+                    after=lambda e: print(f"Player error: {e}") if e else None,
+                )
+            # return
+        except Exception as e:
+            await interaction.response.send_message(f"發生錯誤：{str(e)}")
+
+    @app_commands.command(name="pause", description="暫停音樂")
+    async def pause(self, interaction: discord.Interaction): ...
 
     # @app_commands.command()
     # async def skip(): ...
