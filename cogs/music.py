@@ -46,36 +46,39 @@ class Music(Cog_Extension):
     async def play(self, interaction: discord.Interaction, url: str):
         try:
             voicechannel = interaction.user.voice.channel
-            voice_client = interaction.guild.voice_client
+            # voice_client = interaction.guild.voice_client
             if interaction.user.voice is None:
                 await interaction.response.send_message(
                     "你沒有加入任何語音頻道", silent=True
                 )
             else:
-                await voicechannel.connect()
-                ydl_opts = {
-                    "format": "bestaudio/best",
-                    "quiet": True,
-                    "extractaudio": True,
-                    "outtmpl": "downloads/%(title)s.%(ext)s",
-                    "noplaylist": True,
-                }
-                with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    url2 = info["formats"][0]["url"]
+                voice_client = await voicechannel.connect()
+            # if not isinstance(voice_client, discord.VoiceClient):
+            # await interaction.response.send_message("語音客戶端不可用", silent=True)
+            # return
+            ydl_opts = {
+                "format": "audio/mpeg",
+                "quiet": True,
+                "extractaudio": True,
+                "outtmpl": "downloads/%(title)s.%(ext)s",
+                "noplaylist": True,
+            }
+            with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                url2 = info["formats"][0]["url"]
 
-                ffmpeg_options = {
-                    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-                    "options": "-vn",
-                }
-                # voice_client.stop()
-                voice_client.play(
-                    discord.FFmpegPCMAudio(url2, **ffmpeg_options),
-                    after=lambda e: print(f"Player error: {e}") if e else None,
-                )
+            ffmpeg_options = {
+                "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+                "options": "-vn",
+            }
+            # voice_client.stop()
+            voice_client.play(
+                discord.FFmpegPCMAudio(url2, **ffmpeg_options),
+                after=lambda e: print(f"Player error: {e}") if e else None,
+            )
             # return
         except Exception as e:
-            await interaction.response.send_message(f"發生錯誤：{str(e)}")
+            await interaction.response.send_message(f"發生錯誤：{str(e)}", silent=True)
 
     @app_commands.command(name="pause", description="暫停音樂")
     async def pause(self, interaction: discord.Interaction): ...
