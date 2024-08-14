@@ -51,7 +51,7 @@ async def newreload(interaction: discord.Interaction, extension: str):
 @bot.tree.command(name="unload")
 async def newunload(interaction: discord.Interaction, extension: str):
     await bot.unload_extension(f"cogs.{extension}")
-    await interaction.response.send_message(f" {extension} 以卸載完畢!", silent=True)
+    await interaction.response.send_message(f" {extension} 已卸載完畢!", silent=True)
 
 
 @bot.tree.command(name="load")
