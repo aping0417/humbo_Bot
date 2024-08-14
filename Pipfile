@@ -7,6 +7,7 @@ name = "pypi"
 "discord.py" = "*"
 yt-dlp = "*"
 pytube = "*"
+pynacl = "*"
 
 [dev-packages]
 
