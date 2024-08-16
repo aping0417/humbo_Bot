@@ -55,6 +55,7 @@ class Music(Cog_Extension):
            
             if voice_client is  None: 
                 voice＿client = await voice＿channel.connect()
+                #await interaction.response.send_message(f"網址{url}")
             elif voice＿client.channel != voice_channel:
                 await voice＿channel._move(position=voice_client,reason=None)
             #else:
@@ -79,6 +80,7 @@ class Music(Cog_Extension):
             }
             with youtube_dl.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
+                songtitle = info.get('title', None)
                 #for i, fmt in enumerate(info.get('formats', [])):
                     #print(f"Format {i}: {fmt['format_id']} - {fmt['ext']} - {fmt['url']}")
                     #(這是詳細的格式也是剛開始看的)
@@ -96,11 +98,22 @@ class Music(Cog_Extension):
             }#設定 -reconnect 1 （斷線自動重連） -reconnect_streamed 1（處理Streaming Media會自動重連）
             #-reconnect_delay_max 5(斷線5秒內會自動重連) "options": "-vn" （只處理聲音）
             # voice_client.stop()
-            voice＿client.play(
-                discord.FFmpegPCMAudio(url2, **ffmpeg_options),
-                after=lambda e: print(f"Player error: {e}") if e else None,
-            )
-            await interaction.response.send_message("播放音樂")
+            async def playmusic():
+                try:
+                    voice＿client.play(
+                        discord.FFmpegPCMAudio(url2, **ffmpeg_options),
+                        after=lambda e: print(f"Player error: {e}") if e else None,
+                    )
+                except Exception as e:
+                    await interaction.response.send_message(f"音樂錯誤：{str(e)}",silent=True)
+            async def sendmsg():
+                try:
+                    print("我自你前面")
+                    await interaction.response.send_message(f"歌名{songtitle}\n網址{url}")
+                    print("我自你後面")
+                except Exception as e:
+                    await interaction.response.send_message(f"訊息錯誤：{str(e)}",silent=True)
+            await asyncio.gather(playmusic(),sendmsg())
             # return
         except Exception as e:
             await interaction.response.send_message(f"發生錯誤：{str(e)}", silent=True)
