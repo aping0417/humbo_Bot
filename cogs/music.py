@@ -45,14 +45,23 @@ class Music(Cog_Extension):
     @app_commands.command(name="play", description="撥放音樂")
     async def play(self, interaction: discord.Interaction, url: str):
         try:
-            voicechannel = interaction.user.voice.channel
-            # voice_client = interaction.guild.voice_client
             if interaction.user.voice is None:
                 await interaction.response.send_message(
-                    "你沒有加入任何語音頻道", silent=True
-                )
-            else:
-                voice_client = await voicechannel.connect()
+                "你沒有加入任何語音頻道", ephemeral=True
+            )
+                return      
+            voice＿channel = interaction.user.voice.channel
+            voice＿client = interaction.guild.voice_client
+           
+            if voice_client is  None: 
+                voice＿client = await voice＿channel.connect()
+            elif voice＿client.channel != voice_channel:
+                await voice＿channel._move(position=voice_client,reason=None)
+            #else:
+                #return
+                #downloaded_format = info.get('format')
+                #print(f"下载的格式: {downloaded_format}")
+                
             # if not isinstance(voice_client, discord.VoiceClient):
             # await interaction.response.send_message("語音客戶端不可用", silent=True)
             # return
@@ -87,10 +96,11 @@ class Music(Cog_Extension):
             }#設定 -reconnect 1 （斷線自動重連） -reconnect_streamed 1（處理Streaming Media會自動重連）
             #-reconnect_delay_max 5(斷線5秒內會自動重連) "options": "-vn" （只處理聲音）
             # voice_client.stop()
-            voice_client.play(
+            voice＿client.play(
                 discord.FFmpegPCMAudio(url2, **ffmpeg_options),
                 after=lambda e: print(f"Player error: {e}") if e else None,
             )
+            await interaction.response.send_message("播放音樂")
             # return
         except Exception as e:
             await interaction.response.send_message(f"發生錯誤：{str(e)}", silent=True)

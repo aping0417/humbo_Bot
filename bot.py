@@ -28,13 +28,13 @@ async def load(ctx, extension):
 @bot.command()
 async def unload(ctx, extension):
     await bot.unload_extension(f"cogs.{extension}")
-    await ctx.send(f" {extension} 以卸載完畢!", silent=True)
+    await ctx.send(f" {extension} 已卸載完畢!", silent=True)
 
 
 @bot.command()
 async def reload(ctx, extension):
     await bot.reload_extension(f"cogs.{extension}")
-    await ctx.send(f" {extension} 以重裝完畢!", silent=True)
+    await ctx.send(f" {extension} 已重裝完畢!", silent=True)
 
 
 @bot.tree.command(name="reload")
@@ -42,7 +42,7 @@ async def newreload(interaction: discord.Interaction, extension: str):
     try:
         await bot.reload_extension(f"cogs.{extension}")
         await interaction.response.send_message(
-            f" {extension} 以重裝完畢!", silent=True
+            f" {extension} 已重裝完畢!", silent=True
         )
     except Exception as e:
         await interaction.response.send_message(f"發生錯誤：{str(e)}")
