@@ -54,10 +54,13 @@ class Music(Cog_Extension):
             voice＿client = interaction.guild.voice_client
 
             if voice_client is None:
-                voice＿client = await voice＿channel.connect()
-                # await interaction.response.send_message(f"網址{url}")
+                voice_client = await voice＿channel.connect()
+                await interaction.response.send_message(f"網址{url}", silent=True)
             elif voice＿client.channel != voice_channel:
-                await voice＿channel._move(position=voice_client, reason=None)
+                voice_client = discord.VoiceClient
+                await voice_client.move_to(self=voice_client, channel=voice_channel)
+                # await interaction.response.send_message("test123")
+                # await voice＿channel._move(position=voice_channel, reason="嘻嘻")
             # else:
             # return
             # downloaded_format = info.get('format')
@@ -72,10 +75,10 @@ class Music(Cog_Extension):
                 "extractaudio": True,  # 只抓聲音
                 "outtmpl": "downloads/%(title)s.%(ext)s",  # 指定下载文件的输出模板
                 "noplaylist": True,  # 禁用播放清單（之後會開放）
-                #'postprocessors': [{
-                #'key': 'FFmpegExtractAudio',
-                #'preferredcodec': 'm4a',  # 转换为 mp3
-                #'preferredquality': '192',  # 设置比特率为192k
+                # 'postprocessors': [{
+                # 'key': 'FFmpegExtractAudio',
+                # 'preferredcodec': 'm4a',  # 转换为 mp3
+                # 'preferredquality': '192',  # 设置比特率为192k
                 # }], （這些是限制版本）
             }
             with youtube_dl.YoutubeDL(ydl_opts) as ydl:
@@ -100,9 +103,10 @@ class Music(Cog_Extension):
             # voice_client.stop()
             async def playmusic():
                 try:
-                    voice＿client.play(
+                    voice_client.play(
                         discord.FFmpegPCMAudio(url2, **ffmpeg_options),
-                        after=lambda e: print(f"Player error: {e}") if e else None,
+                        after=lambda e: print(
+                            f"Player error: {e}") if e else None,
                     )
                 except Exception as e:
                     await interaction.response.send_message(
@@ -111,17 +115,19 @@ class Music(Cog_Extension):
 
             async def sendmsg():
                 try:
-                    print("我自你前面")
+                    # print("我自你前面")
                     await interaction.response.send_message(
-                        f"歌名{songtitle}\n網址{url}", silent=True
+                        f"{songtitle}\n網址:{url}", silent=True
                     )
-                    print("我自你後面")
+                    # print("我自你後面")
                 except Exception as e:
                     await interaction.response.send_message(
                         f"訊息錯誤：{str(e)}", silent=True
                     )
-
+            # print(type(voice_client.channel))
+            # print(type(voice_channel))
             await asyncio.gather(playmusic(), sendmsg())
+
             # return
         except Exception as e:
             await interaction.response.send_message(f"發生錯誤：{str(e)}", silent=True)
