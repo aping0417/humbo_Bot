@@ -37,7 +37,7 @@ class Math(Cog_Extension):
             )
 
     @app_commands.command(name="隨機選擇", description="選擇")
-    async def choose(self, interaction: discord.Interaction, *msg: str):
+    async def choose(self, interaction: discord.Interaction, msg: str):
         any = msg.split(" ")
         random_num = random.randint(0, len(any))
         await interaction.response.send_message(any[random_num], silent=True)
