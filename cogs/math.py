@@ -36,6 +36,13 @@ class Math(Cog_Extension):
                 f"不能一次打3個以上的數字操", silent=True
             )
 
+    @app_commands.command(name="隨機選擇", description="選擇")
+    async def choose(self, interaction: discord.Interaction, *msg: str):
+        any = msg.split(" ")
+        random_num = random.randint(0, len(any))
+        await interaction.response.send_message(any[random_num], silent=True)
+        # print(any[random_num])
+
 
 async def setup(bot):
     await bot.add_cog(Math(bot))

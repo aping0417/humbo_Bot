@@ -54,7 +54,9 @@ class Music(Cog_Extension):
                 )
                 return
             voice＿channel = interaction.user.voice.channel
-            voice＿client = interaction.guild.voice_client
+            voice＿client = (
+                interaction.guild.voice_client
+            )  # 機器人在的伺服器的聲音的內容
 
             if voice_client is None:
                 voice_client = await voice＿channel.connect()
@@ -114,8 +116,7 @@ class Music(Cog_Extension):
                 try:
                     voice_client.play(
                         discord.FFmpegPCMAudio(url2, **ffmpeg_options),
-                        after=lambda e: print(
-                            f"Player error: {e}") if e else None,
+                        after=lambda e: print(f"Player error: {e}") if e else None,
                     )
                 except Exception as e:
                     await interaction.response.send_message(
@@ -133,6 +134,7 @@ class Music(Cog_Extension):
                     await interaction.response.send_message(
                         f"訊息錯誤：{str(e)}", silent=True
                     )
+
             # print(type(voice_client.channel))
             # print(type(voice_channel))
 
