@@ -16,8 +16,8 @@ class Music(Cog_Extension):
         self.play_queue = []
         self.queue_lock = asyncio.Lock()
 
-    @app_commands.command(name="join", description="join to channel")
-    async def join(self, interaction: discord.Interaction):
+    # @app_commands.command(name="join", description="join to channel")    下次多寫一個app command 呼叫join
+    async def __join(self, interaction: discord.Interaction):
 
         if interaction.user.voice == None:
             await interaction.response.send_message(
@@ -63,7 +63,8 @@ class Music(Cog_Extension):
             )  # 機器人在的伺服器的聲音的內容
 
             if voice_client is None:
-                voice_client = await voice＿channel.connect()
+                # voice_client = await voice＿channel.connect()
+                await self.__join(interaction)
                 # print("before")
                 # await playmusic()
                 await interaction.response.send_message(f"網址{url}", silent=True)
@@ -105,7 +106,9 @@ class Music(Cog_Extension):
                 # (剛開始拿來看有啥格式能撥用的)
             async with self.queue_lock:
                 self.play_queue.append((songtitle, url))
-            await interaction.response.send_message(f"{songtitle} 已添加到播放清單。", silent=True)
+            await interaction.response.send_message(
+                f"{songtitle} 已添加到播放清單。", silent=True
+            )
             # print("你好")
             # await interaction.response.send_message("i am here")
             if not voice_client.is_playing():
@@ -124,8 +127,7 @@ class Music(Cog_Extension):
                 try:
                     voice_client.play(
                         discord.FFmpegPCMAudio(url2, **ffmpeg_options),
-                        after=lambda e: print(
-                            f"Player error: {e}") if e else None,
+                        after=lambda e: print(f"Player error: {e}") if e else None,
                     )
                 except Exception as e:
                     await interaction.response.send_message(
@@ -151,6 +153,7 @@ class Music(Cog_Extension):
                 try:
                     async with self.queue_lock:
                         if self.play_queue:
+                            print("有有嗎")
                             songtitle, song_url = self.play_queue.pop(0)
                             print("有嗎")
                             ffmpeg_options = {
@@ -160,12 +163,20 @@ class Music(Cog_Extension):
                         voice_client = discord.VoiceClient
                         voice_client.play(
                             discord.FFmpegPCMAudio(song_url, **ffmpeg_options),
-                            after=lambda e: asyncio.run_coroutine_threadsafe(play_next_song(
-                                voice_client), asyncio.get_running_loop()) if e is None else print(f"播放错误：{e}")
+                            after=lambda e: (
+                                asyncio.run_coroutine_threadsafe(
+                                    play_next_song(voice_client),
+                                    asyncio.get_running_loop(),
+                                )
+                                if e is None
+                                else print(f"播放错误：{e}")
+                            ),
                         )
                         await interaction.channel.send(f"正在播放: {songtitle}")
                 except Exception as e:
-                    await interaction.response.send_message(f"錯誤:{str(e)}", silent=True)
+                    await interaction.response.send_message(
+                        f"錯誤:{str(e)}", silent=True
+                    )
 
             # return
         except Exception as e:
@@ -187,7 +198,8 @@ class Music(Cog_Extension):
                 await interaction.response.send_message("播放清單是空的。")
             else:
                 queue_display = "\n".join(
-                    f"{i+1}. {title}" for i, (title, _) in enumerate(self.play_queue))
+                    f"{i+1}. {title}" for i, (title, _) in enumerate(self.play_queue)
+                )
                 await interaction.response.send_message(f"播放清單:\n{queue_display}")
 
     # @app_commands.command()
