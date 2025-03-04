@@ -86,6 +86,10 @@ class Music(Cog_Extension):
                 "extractaudio": True,  # 只抓聲音
                 "outtmpl": "downloads/%(title)s.%(ext)s",  # 指定下载文件的输出模板
                 "noplaylist": True,  # 禁用播放清單（之後會開放）
+                "cookiefile": "cookies.txt",  # 使用 cookies.txt 以繞過驗證
+                "http_headers": {
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_3_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.5735.199 Safari/537.36"
+                }
                 # 'postprocessors': [{
                 # 'key': 'FFmpegExtractAudio',
                 # 'preferredcodec': 'm4a',  # 转换为 mp3
@@ -119,6 +123,7 @@ class Music(Cog_Extension):
             ffmpeg_options = {
                 "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
                 "options": "-vn",
+                'executable': '/usr/local/bin/ffmpeg'  # macOS 的 FFmpeg 路徑
             }  # 設定 -reconnect 1 （斷線自動重連） -reconnect_streamed 1（處理Streaming Media會自動重連）
 
             # -reconnect_delay_max 5(斷線5秒內會自動重連) "options": "-vn" （只處理聲音）
@@ -127,7 +132,8 @@ class Music(Cog_Extension):
                 try:
                     voice_client.play(
                         discord.FFmpegPCMAudio(url2, **ffmpeg_options),
-                        after=lambda e: print(f"Player error: {e}") if e else None,
+                        after=lambda e: print(
+                            f"Player error: {e}") if e else None,
                     )
                 except Exception as e:
                     await interaction.response.send_message(
