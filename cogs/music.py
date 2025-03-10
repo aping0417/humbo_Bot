@@ -50,8 +50,6 @@ class Music(Cog_Extension):
     @app_commands.command(name="play", description="撥放音樂")
     async def play(self, interaction: discord.Interaction, url: str):
         try:
-            # play_queue = []  # 播放清單
-            # queue_lock = asyncio.Lock()
             if interaction.user.voice is None:
                 await interaction.response.send_message(
                     "你沒有加入任何語音頻道", ephemeral=True
@@ -86,10 +84,7 @@ class Music(Cog_Extension):
                 "extractaudio": True,  # 只抓聲音
                 "outtmpl": "downloads/%(title)s.%(ext)s",  # 指定下载文件的输出模板
                 "noplaylist": True,  # 禁用播放清單（之後會開放）
-                # "cookiefile": "cookies.txt",  # 使用 cookies.txt 以繞過驗證
-                "http_headers": {
-                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_3_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.5735.199 Safari/537.36"
-                }
+
                 # 'postprocessors': [{
                 # 'key': 'FFmpegExtractAudio',
                 # 'preferredcodec': 'm4a',  # 转换为 mp3
@@ -108,22 +103,12 @@ class Music(Cog_Extension):
                 # downloaded_format = info.get('format')
                 # print(f"下载的格式: {downloaded_format}")
                 # (剛開始拿來看有啥格式能撥用的)
-            async with self.queue_lock:
-                self.play_queue.append((songtitle, url))
-            await interaction.response.send_message(
-                f"{songtitle} 已添加到播放清單。", silent=True
-            )
-            # print("你好")
-            # await interaction.response.send_message("i am here")
-            if not voice_client.is_playing():
-                print("yes or no")
-                await play_next_song(voice_client)
+
             # await asyncio.gather(play＿next_song(), sendmsg())
             print("哈嚕")
             ffmpeg_options = {
                 "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
                 "options": "-vn",
-                'executable': '/usr/local/bin/ffmpeg'  # macOS 的 FFmpeg 路徑
             }  # 設定 -reconnect 1 （斷線自動重連） -reconnect_streamed 1（處理Streaming Media會自動重連）
 
             # -reconnect_delay_max 5(斷線5秒內會自動重連) "options": "-vn" （只處理聲音）
@@ -157,34 +142,23 @@ class Music(Cog_Extension):
 
             async def play_next_song(voice_client):
                 try:
-                    async with self.queue_lock:
-                        if self.play_queue:
-                            print("有有嗎")
-                            songtitle, song_url = self.play_queue.pop(0)
-                            print("有嗎")
-                            ffmpeg_options = {
-                                "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-                                "options": "-vn",
-                            }
-                        voice_client = discord.VoiceClient
-                        voice_client.play(
-                            discord.FFmpegPCMAudio(song_url, **ffmpeg_options),
-                            after=lambda e: (
-                                asyncio.run_coroutine_threadsafe(
-                                    play_next_song(voice_client),
-                                    asyncio.get_running_loop(),
-                                )
-                                if e is None
-                                else print(f"播放错误：{e}")
-                            ),
-                        )
-                        await interaction.channel.send(f"正在播放: {songtitle}")
+                    ffmpeg_options = {
+                        "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+                        "options": "-vn",
+                    }
+                    voice_client = discord.VoiceClient
+                    voice_client.play(
+                        discord.FFmpegPCMAudio(song_url, **ffmpeg_options),
+                    )
                 except Exception as e:
                     await interaction.response.send_message(
                         f"錯誤:{str(e)}", silent=True
                     )
-
+            # await asyncio.gather(playmusic(), sendmsg())
             # return
+            if not voice_client.is_playing():
+                print("yes or no")
+                await asyncio.gather(playmusic(), sendmsg())
         except Exception as e:
             await interaction.response.send_message(f"發生錯誤：{str(e)}", silent=True)
 
@@ -199,23 +173,15 @@ class Music(Cog_Extension):
 
     @app_commands.command(name="list", description="看歌單")
     async def list(self, interaction: discord.Interaction):
-        async with self.queue_lock:
-            if not self.play_queue:
-                await interaction.response.send_message("播放清單是空的。")
-            else:
-                queue_display = "\n".join(
-                    f"{i+1}. {title}" for i, (title, _) in enumerate(self.play_queue)
-                )
-                await interaction.response.send_message(f"播放清單:\n{queue_display}")
 
-    # @app_commands.command()
-    # async def skipto(): ...
+        # @app_commands.command()
+        # async def skipto(): ...
 
-    # @app_commands.command()
-    # async def shuffle(): ...
+        # @app_commands.command()
+        # async def shuffle(): ...
 
-    # @app_commands.command()
-    # async def repeat(): ...
+        # @app_commands.command()
+        # async def repeat(): ...
 
 
 async def setup(bot):
