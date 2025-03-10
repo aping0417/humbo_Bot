@@ -86,7 +86,7 @@ class Music(Cog_Extension):
                 "extractaudio": True,  # 只抓聲音
                 "outtmpl": "downloads/%(title)s.%(ext)s",  # 指定下载文件的输出模板
                 "noplaylist": True,  # 禁用播放清單（之後會開放）
-                "cookiefile": "cookies.txt",  # 使用 cookies.txt 以繞過驗證
+                # "cookiefile": "cookies.txt",  # 使用 cookies.txt 以繞過驗證
                 "http_headers": {
                     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_3_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.5735.199 Safari/537.36"
                 }
