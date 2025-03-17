@@ -17,6 +17,12 @@ async def on_ready():
     slash = await bot.tree.sync()
     print("雪寶 啟動")
     print(f"裝了{len(slash)}個斜線")
+    # 顯示已載入的 Cogs
+    # print("🔍 已載入的 Cogs:")
+    # for ext in bot.extensions:
+    # print(f"  - {ext}")
+    await bot.tree.sync()  # 🚀 手動同步 Slash 指令
+    print("✅ Slash 指令已同步！")
 
 
 @bot.command()
@@ -67,7 +73,8 @@ async def hellow(interaction: discord.Interaction):
 
 async def setup():
     for filename in os.listdir("./cogs"):
-        if filename.endswith(".py"):
+        if filename.endswith(".py") and filename != "__init__.py":  # ✅ 跳過 `__init__.py`
+            # if filename.endswith(".py"):
             await bot.load_extension(f"cogs.{filename[:-3]}")
     await bot.start(jdata["TOKEN"])
 

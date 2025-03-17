@@ -13,6 +13,7 @@ DATABASE_PATH = "music_bot.db"
 
 class Playlist(Cog_Extension):
     def __init__(self, bot, db_path=DATABASE_PATH):
+        self.bot = bot
         self.db_path = db_path
         self.init_db()
 
@@ -66,7 +67,7 @@ class Playlist(Cog_Extension):
         return songs
 
 
-database = Playlist()  # 讓 `bot.py` 可以直接 import 使用
+# database = Playlist()  # 讓 `bot.py` 可以直接 import 使用
 
 
 async def setup(bot):
