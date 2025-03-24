@@ -51,7 +51,7 @@ class MusicPlayer:
 
     def play_next(self, voice_client):
         """播放下一首歌曲"""
-        voice_client = discord.VoiceClient
+        # voice_client = discord.VoiceClient
         if self.play_queue:
             url, title = self.play_queue.pop(0)
             source = discord.FFmpegPCMAudio(url, **ffmpeg_options)
@@ -130,16 +130,15 @@ class Music(Cog_Extension):
         else:
             await interaction.response.send_message("❌ 沒有正在播放的音樂！")
 
-    @app_commands.command(name="list", description="看歌單")
+    @app_commands.command(name="list", description="看播放佇列")
     async def list(self, interaction: discord.Interaction):
-        async with self.queue_lock:
-            if not self.player.play_queue:
-                await interaction.response.send_message("播放清單是空的。")
-            else:
-                queue_display = "\n".join(
-                    f"{i+1}. {title}" for i, (title, _) in enumerate(self.player.play_queue)
-                )
-                await interaction.response.send_message(f"播放清單:\n{queue_display}")
+        if not self.player.play_queue:
+            await interaction.response.send_message("📭 播放清單是空的。")
+        else:
+            queue_display = "\n".join(
+                f"{i+1}. {title}" for i, (title, _) in enumerate(self.player.play_queue)
+            )
+        await interaction.response.send_message(f"📃 播放清單:\n{queue_display}")
 
     @app_commands.command(name="create_playlist", description="創建新的歌單")
     async def create_playlist(self, interaction: discord.Interaction, name: str):
@@ -147,9 +146,19 @@ class Music(Cog_Extension):
         await interaction.response.send_message(f'✅ 已創建歌單: {name}')
 
     @app_commands.command(name="add_song", description="新增歌曲到歌單")
-    async def add_song(self, interaction: discord.Interaction, playlist_name: str, title: str, url: str):
-        self.playlist_manager.add_song(playlist_name, title, url)
-        await interaction.response.send_message(f'✅ 已新增 `{title}` 到 `{playlist_name}`')
+    async def add_song(self, interaction: discord.Interaction, playlist_name: str, url: str):
+        try:
+            # 使用 yt_dlp 抓歌名
+            with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                title = info.get("title", "未知標題")
+
+            # 新增到資料庫
+            self.playlist_manager.add_song(playlist_name, title, url)
+            await interaction.response.send_message(f'✅ 已新增 `{title}` 到 `{playlist_name}`')
+
+        except Exception as e:
+            await interaction.response.send_message(f"❌ 無法加入歌曲：{str(e)}")
 
     @app_commands.command(name="play_playlist", description="播放整個歌單")
     async def play_playlist(self, interaction: discord.Interaction, playlist_name: str):
@@ -168,7 +177,7 @@ class Music(Cog_Extension):
         if voice_client is None:
             voice_client = await voice_channel.connect()
         elif voice_client.channel != voice_channel:
-            await voice_client2.move_to(voice_channel)
+            await voice_client.move_to(voice_channel)
 
         for title, url in songs:
             self.player.add_to_queue(url)
@@ -198,7 +207,7 @@ class Music(Cog_Extension):
                 # await playmusic()
                 await interaction.response.send_message(f"網址{url}", silent=True)
             elif voice＿client.channel != voice_channel:
-                voice_client = discord.VoiceClient
+                # voice_client = discord.VoiceClient
                 await voice_client.move_to(self=voice_client, channel=voice_channel)
                 # await interaction.response.send_message("test123")
             # else:
@@ -275,6 +284,18 @@ class Music(Cog_Extension):
                 await asyncio.gather(playmusic(), sendmsg())
         except Exception as e:
             await interaction.response.send_message(f"發生錯誤：{str(e)}", silent=True)
+
+    @app_commands.command(name="show_playlist", description="查看某個歌單的所有歌曲")
+    async def show_playlist(self, interaction: discord.Interaction, playlist_name: str):
+        songs = self.playlist_manager.get_songs(playlist_name)
+        if not songs:
+            await interaction.response.send_message(f"⚠️ 歌單 `{playlist_name}` 是空的或不存在。")
+            return
+
+        display = "\n".join(
+            f"{i+1}. {title}" for i, (title, _) in enumerate(songs)
+        )
+        await interaction.response.send_message(f"📀 歌單 `{playlist_name}` 的內容：\n{display}")
 
     @app_commands.command(name="pause", description="暫停音樂")
     async def pause(self, interaction: discord.Interaction): ...
