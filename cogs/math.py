@@ -5,6 +5,7 @@ import json
 import asyncio
 import random
 from core.classes import Cog_Extension
+import re
 
 
 class RPSGame:
@@ -34,9 +35,10 @@ class RPSGame:
             return None  # 尚未全員選擇
 
         choices = list(self.players.values())
-        unique_choices = set(choices)
+        unique_choices = set(choices)  # 所有人選擇的集合
 
-        # 如果所有人選擇相同，或出現剪刀、石頭、布三種手勢，則重新猜拳
+        # 如果所有人選擇相同->集合長度為1
+        # 如果出現剪刀、石頭、布三種手勢->集合長度為3
         if len(unique_choices) == 1 or len(unique_choices) == 3:
             return "再猜一次!"
 
@@ -197,12 +199,40 @@ class Math(Cog_Extension):
                 f"不能一次打3個以上的數字操", silent=True
             )
 
-    @app_commands.command(name="隨機選擇", description="選擇")
-    async def choose(self, interaction: discord.Interaction, msg: str):
-        any = msg.split(" ")
-        random_num = random.randint(0, len(any))
-        await interaction.response.send_message(any[random_num], silent=True)
-        # print(any[random_num])
+    @app_commands.command(name="隨機選擇", description="從輸入的選項中隨機選出指定數量")
+    @app_commands.describe(
+        amount="要選幾個？", options="請輸入選項，使用空格、逗號或頓號分隔"
+    )
+    async def choose(self, interaction: discord.Interaction, amount: int, options: str):
+        items = re.split(r"[、,，\s]+", options.strip())
+        items = [item for item in items if item]
+
+        if not items or len(items) < 2:
+            await interaction.response.send_message(
+                "請提供至少兩個可選項目。", ephemeral=True
+            )
+            return
+
+        if amount <= 0:
+            await interaction.response.send_message(
+                "選擇的數量必須大於 0。", ephemeral=True
+            )
+            return
+
+        if amount > len(items):
+            await interaction.response.send_message(
+                f"你只提供了 {len(items)} 項，無法選出 {amount} 個。", ephemeral=True
+            )
+            return
+
+        chosen = random.sample(items, amount)
+        options_text = "、".join(items)
+        chosen_text = "、".join(chosen)
+
+        await interaction.response.send_message(
+            f"從以下選項中隨機選出 {amount} 個：\n> {options_text}\n\n🎯 選中的項目是：**{chosen_text}**",
+            silent=True,
+        )
 
     @app_commands.command(name="猜拳", description="多人一起玩猜拳!")
     async def rps(self, interaction: discord.Interaction):
