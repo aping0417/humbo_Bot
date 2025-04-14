@@ -10,7 +10,7 @@ from cogs.playlist import Playlist
 from core.classes import Cog_Extension
 
 ydl_opts = {
-    "format": "bestaudio/best",  # 格式
+    "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",  # 格式
     "quiet": True,  # 抑制 youtube_dl 的大部分输出
     "extractaudio": True,  # 只抓聲音
     "outtmpl": "downloads/%(title)s.%(ext)s",  # 指定下载文件的输出模板
@@ -31,8 +31,46 @@ ffmpeg_options = {
 
 
 class MusicPlayer:
-    def __init__(self):
-        self.play_queue = []
+    def __init__(self, playlist_manager):
+        self.play_queue = []  # 每首歌格式：("url", "title", playlist_name)
+        self.playlist_manager = playlist_manager
+
+    def play_next(self, voice_client):
+        if not voice_client or not voice_client.is_connected():
+            print("⚠️ Voice client 不存在或未連線")
+            return
+
+        if self.play_queue:
+            url, title, playlist_name = self.play_queue.pop(0)
+            try:
+                source = discord.FFmpegPCMAudio(url, **ffmpeg_options)
+                voice_client.play(
+                    source,
+                    after=lambda e: self._after_song(
+                        e, voice_client, playlist_name, url)
+                )
+                print(f"▶️ 正在播放：{title}")
+            except Exception as e:
+                print(f"❌ 播放失敗：{e}")
+                # 播放失敗時不要刪除，直接跳下一首
+                self.play_next(voice_client)
+
+    def _after_song(self, error, voice_client, playlist_name, url):
+        if error:
+            print(f"⚠️ 播放錯誤：{error}")
+        elif playlist_name:
+            print(f"🗑 播完後從 `{playlist_name}` 移除歌曲")
+            self.playlist_manager.delete_song_by_url(playlist_name, url)
+
+        self.play_next(voice_client)
+
+    def add_to_queue(self, url, title=None, playlist_name=None):
+        if not title:
+            url, title = self.download_audio(url)  # <- 重點在這裡，轉換成真正音訊串流網址
+        self.play_queue.append((url, title, playlist_name))
+        return title
+
+    USE_FORMAT_5 = True  # 可開關的 flag
 
     def download_audio(self, url):
         """使用 yt_dlp 取得音訊串流網址 (確保選擇第 6 個格式)"""
@@ -42,29 +80,12 @@ class MusicPlayer:
 
         # 確保 `formats[5]` 存在，否則回傳最好的音訊
             formats = info.get("formats", [])
-            if len(formats) > 5:
-                audio_url = formats[5]["url"]
+            if len(formats) > 8:
+                audio_url = formats[8]["url"]
             else:
                 audio_url = info["url"]  # 預設回傳最佳音質的音訊
 
             return audio_url, songtitle
-
-    def play_next(self, voice_client):
-        """播放下一首歌曲"""
-        # voice_client = discord.VoiceClient
-        if self.play_queue:
-            url, title = self.play_queue.pop(0)
-            source = discord.FFmpegPCMAudio(url, **ffmpeg_options)
-            voice_client.play(
-                source, after=lambda e: self.play_next(
-                    voice_client) if e is None else None
-            )
-
-    def add_to_queue(self, url):
-        """將歌曲加入播放隊列"""
-        audio_url, title = self.download_audio(url)
-        self.play_queue.append((audio_url, title))
-        return title
 
     # @app_commands.command(name="join", description="join to channel")    下次多寫一個app command 呼叫join
 
@@ -74,7 +95,8 @@ class Music(Cog_Extension):
         super().__init__(bot)
         self.bot = bot  # ✅ 確保 `bot` 存在
         self.playlist_manager = Playlist(bot)  # ✅ 讓 `Music` 管理歌單
-        self.player = MusicPlayer()  # ✅ `Music` 內部包含 `MusicPlayer`
+        # ✅ `Music` 內部包含 `MusicPlayer`
+        self.player = MusicPlayer(self.playlist_manager)
 
     async def __join(self, interaction: discord.Interaction):
 
@@ -172,7 +194,7 @@ class Music(Cog_Extension):
 
         voice_channel = interaction.user.voice.channel
         voice_client = interaction.guild.voice_client
-        voice_client2 = discord.VoiceClient
+        # voice_client2 = discord.VoiceClient
 
         if voice_client is None:
             voice_client = await voice_channel.connect()
@@ -180,7 +202,7 @@ class Music(Cog_Extension):
             await voice_client.move_to(voice_channel)
 
         for title, url in songs:
-            self.player.add_to_queue(url)
+            self.player.add_to_queue(url, title, playlist_name)
 
         if not voice_client.is_playing():
             self.player.play_next(voice_client)
@@ -226,7 +248,7 @@ class Music(Cog_Extension):
                 # print(f"Format {i}: {fmt['format_id']} - {fmt['ext']} - {fmt['url']}")
                 # (這是詳細的格式也是剛開始看的)
 
-                url2 = info["formats"][5]["url"]  # 第6個格式
+                url2 = info["formats"][8]["url"]  # 第6個格式
 
                 # downloaded_format = info.get('format')
                 # print(f"下载的格式: {downloaded_format}")
