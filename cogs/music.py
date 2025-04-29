@@ -42,6 +42,7 @@ class MusicPlayer:
 
         if self.play_queue:
             url, title, playlist_name = self.play_queue.pop(0)
+            # print(f"🎧 播放時使用網址：{url}")  # 確認真正播放的網址
             try:
                 source = discord.FFmpegPCMAudio(url, **ffmpeg_options)
                 voice_client.play(
@@ -52,7 +53,6 @@ class MusicPlayer:
                 print(f"▶️ 正在播放：{title}")
             except Exception as e:
                 print(f"❌ 播放失敗：{e}")
-                # 播放失敗時不要刪除，直接跳下一首
                 self.play_next(voice_client)
 
     def _after_song(self, error, voice_client, playlist_name, url):
@@ -66,26 +66,34 @@ class MusicPlayer:
 
     def add_to_queue(self, url, title=None, playlist_name=None):
         if not title:
-            url, title = self.download_audio(url)  # <- 重點在這裡，轉換成真正音訊串流網址
+            url, title = self.download_audio(url)
+        else:
+            url, _ = self.download_audio(url)  # 就算有title也要轉換一次URL
         self.play_queue.append((url, title, playlist_name))
+        # print(f"📌 加入隊列的網址：{url}")
         return title
+
+    # def add_to_queue(self, url):
+    #     """將歌曲加入播放隊列"""
+    #     audio_url, title = self.download_audio(url)
+    #     self.play_queue.append((audio_url, title))
+    #     return title
 
     USE_FORMAT_5 = True  # 可開關的 flag
 
     def download_audio(self, url):
-        """使用 yt_dlp 取得音訊串流網址 (確保選擇第 6 個格式)"""
+        """安全地抓取穩定的音訊格式"""
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            songtitle = info.get("title", None)
+            songtitle = info.get("title", "未知標題")
 
-        # 確保 `formats[5]` 存在，否則回傳最好的音訊
-            formats = info.get("formats", [])
-            if len(formats) > 8:
-                audio_url = formats[8]["url"]
-            else:
-                audio_url = info["url"]  # 預設回傳最佳音質的音訊
+            # 明確優先抓 AAC (itag=140) 或 Opus (itag=251)
+            for f in info.get("formats", []):
+                if f["format_id"] in ["140", "251"]:
+                    return f["url"], songtitle
 
-            return audio_url, songtitle
+            # fallback 選擇 yt-dlp 最佳推薦的音訊
+            return info["url"], songtitle
 
     # @app_commands.command(name="join", description="join to channel")    下次多寫一個app command 呼叫join
 
@@ -135,7 +143,7 @@ class Music(Cog_Extension):
         elif voice_client.channel != voice_channel:
             await voice_client2.move_to(voice_channel)
 
-        title = self.player.add_to_queue(url)
+        title = self.player.add_to_queue(url, title)
 
         if not voice_client2.is_playing():
             self.player.play_next(voice_client)
@@ -248,7 +256,7 @@ class Music(Cog_Extension):
                 # print(f"Format {i}: {fmt['format_id']} - {fmt['ext']} - {fmt['url']}")
                 # (這是詳細的格式也是剛開始看的)
 
-                url2 = info["formats"][8]["url"]  # 第6個格式
+                url2 = info["formats"][6]["url"]  # 第6個格式
 
                 # downloaded_format = info.get('format')
                 # print(f"下载的格式: {downloaded_format}")
