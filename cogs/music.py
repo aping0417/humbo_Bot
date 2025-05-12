@@ -66,11 +66,12 @@ class MusicPlayer:
 
     def add_to_queue(self, url, title=None, playlist_name=None):
         if not title:
-            url, title = self.download_audio(url)
+            real_url, title = self.download_audio(url)
         else:
-            url, _ = self.download_audio(url)  # 就算有title也要轉換一次URL
-        self.play_queue.append((url, title, playlist_name))
-        # print(f"📌 加入隊列的網址：{url}")
+            real_url = url  # 如果已經有 title，代表是資料庫來的，保持原樣
+
+        print(f"📌 加入隊列的網址：{real_url}")
+        self.play_queue.append((real_url, title, playlist_name))
         return title
 
     # def add_to_queue(self, url):
@@ -178,15 +179,13 @@ class Music(Cog_Extension):
     @app_commands.command(name="add_song", description="新增歌曲到歌單")
     async def add_song(self, interaction: discord.Interaction, playlist_name: str, url: str):
         try:
-            # 使用 yt_dlp 抓歌名
-            with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                title = info.get("title", "未知標題")
+            # 使用 download_audio() 抓取正確可播放的 URL 與標題
+            audio_url, title = self.player.download_audio(url)
 
-            # 新增到資料庫
-            self.playlist_manager.add_song(playlist_name, title, url)
+            # 儲存可實際播放的 URL 到資料庫
+            self.playlist_manager.add_song(playlist_name, title, audio_url)
+
             await interaction.response.send_message(f'✅ 已新增 `{title}` 到 `{playlist_name}`')
-
         except Exception as e:
             await interaction.response.send_message(f"❌ 無法加入歌曲：{str(e)}")
 
