@@ -88,7 +88,7 @@ class MusicPlayer:
             info = ydl.extract_info(url, download=False)
             songtitle = info.get("title", "未知標題")
 
-            # 明確優先抓 AAC (itag=140) 或 Opus (itag=251)
+            # 只抓 m4a itag=140 或 wbam itag=251
             for f in info.get("formats", []):
                 if f["format_id"] in ["140", "251"]:
                     return f["url"], songtitle
