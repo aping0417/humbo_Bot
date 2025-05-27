@@ -8,7 +8,7 @@ ydl_opts = {
     "noplaylist": True,
 }
 
-url = "https://www.youtube.com/watch?v=HIb3xizoyP0&ab_channel=%E6%B2%92%E6%9C%89%E8%80%B3%E8%86%9C%E7%9A%84%E7%83%A4%E8%82%89men"
+url = "https://www.youtube.com/watch?v=VhCkbbyrxoQ&ab_channel=%E9%9F%BFHibikiChannel"
 
 
 with youtube_dl.YoutubeDL(ydl_opts) as ydl:

@@ -66,6 +66,40 @@ class Playlist(Cog_Extension):
         conn.close()
         return songs
 
+    def delete_song_by_url(self, playlist_name, url):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        # 先查出 playlist 的 ID
+        cursor.execute(
+            "SELECT id FROM playlists WHERE name = ?", (playlist_name,))
+        result = cursor.fetchone()
+
+        if result:
+            playlist_id = result[0]
+
+            # 刪除歌曲
+            cursor.execute(
+                "DELETE FROM songs WHERE playlist_id = ? AND url = ?",
+                (playlist_id, url)
+            )
+            conn.commit()
+
+            # 檢查這個歌單是否還有歌
+            cursor.execute(
+                "SELECT COUNT(*) FROM songs WHERE playlist_id = ?", (playlist_id,))
+            song_count = cursor.fetchone()[0]
+
+            if song_count == 0:
+                # 如果歌單沒歌了，就刪除歌單
+                cursor.execute(
+                    "DELETE FROM playlists WHERE id = ?", (playlist_id,))
+                print(f"🗑 已刪除空的歌單 `{playlist_name}`")
+
+            conn.commit()
+
+        conn.close()
+
 
 # database = Playlist()  # 讓 `bot.py` 可以直接 import 使用
 
