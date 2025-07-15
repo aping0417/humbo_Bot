@@ -34,6 +34,7 @@ class MusicPlayer:
     def __init__(self, playlist_manager):
         self.play_queue = []  # 每首歌格式：("url", "title", playlist_name)
         self.playlist_manager = playlist_manager
+        self.current_playlist_id = None  # ⬅️ 播放中的 playlist（由 guild_id 給）
 
     def play_next(self, voice_client):
         if not voice_client or not voice_client.is_connected():
@@ -42,26 +43,35 @@ class MusicPlayer:
 
         if self.play_queue:
             url, title, playlist_name = self.play_queue.pop(0)
-            # print(f"🎧 播放時使用網址：{url}")  # 確認真正播放的網址
-            try:
-                source = discord.FFmpegPCMAudio(url, **ffmpeg_options)
-                voice_client.play(
-                    source,
-                    after=lambda e: self._after_song(
-                        e, voice_client, playlist_name, url
-                    ),
-                )
-                print(f"▶️ 正在播放：{title}")
-            except Exception as e:
-                print(f"❌ 播放失敗：{e}")
-                self.play_next(voice_client)
+        elif self.current_playlist_id:
+            result = self.playlist_manager.pop_next_song(self.current_playlist_id)
+            if result:
+                title, url = result
+                playlist_name = self.current_playlist_id
+            else:
+                print("📭 播放清單已空")
+                self.current_playlist_id = None
+                return
+        else:
+            return
+
+        try:
+            source = discord.FFmpegPCMAudio(url, **ffmpeg_options)
+            voice_client.play(
+                source,
+                after=lambda e: self._after_song(e, voice_client, playlist_name, url),
+            )
+            print(f"▶️ 正在播放：{title}")
+        except Exception as e:
+            print(f"❌ 播放失敗：{e}")
+            self.play_next(voice_client)
 
     def _after_song(self, error, voice_client, playlist_name, url):
         if error:
             print(f"⚠️ 播放錯誤：{error}")
-        elif playlist_name:
-            print(f"🗑 播完後從 `{playlist_name}` 移除歌曲")
-            self.playlist_manager.delete_song_by_url(playlist_name, url)
+        # elif playlist_name:
+        #    print(f"🗑 播完後從 `{playlist_name}` 移除歌曲")
+        #   self.playlist_manager.delete_song_by_url(playlist_name, url)
 
         self.play_next(voice_client)
 
@@ -181,20 +191,6 @@ class Music(Cog_Extension):
     async def create_playlist(self, interaction: discord.Interaction, name: str):
         await interaction.response.send_message(f"就跟你說停用了還建 你是看不懂是不是")
 
-    @app_commands.command(name="add_song", description="新增歌曲到這個伺服器的歌單")
-    async def add_song(self, interaction: discord.Interaction, url: str):
-        try:
-            guild_id = str(interaction.guild.id)
-            self.playlist_manager.ensure_playlist_exists(guild_id)
-
-            audio_url, title = self.player.download_audio(url)
-            self.playlist_manager.add_song(guild_id, title, audio_url)
-            await interaction.response.send_message(
-                f"✅ 已新增 `{title}` 到本伺服器的歌單"
-            )
-        except Exception as e:
-            await interaction.response.send_message(f"❌ 無法加入歌曲：{str(e)}")
-
     @app_commands.command(
         name="add_song", description="新增歌曲或整份播放清單到伺服器歌單"
     )
@@ -205,10 +201,15 @@ class Music(Cog_Extension):
         self.playlist_manager.ensure_playlist_exists(guild_id)
 
         try:
-            # 檢查是否是播放清單（含 playlist?list=）
             if "playlist?" in url or "list=" in url:
+                ydl_opts_playlist = {
+                    "quiet": True,
+                    "extract_flat": "in_playlist",
+                    "noplaylist": False,
+                    "skip_download": True,
+                }
 
-                with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+                with youtube_dl.YoutubeDL(ydl_opts_playlist) as ydl:
                     info = ydl.extract_info(url, download=False)
                     entries = info.get("entries", [])
 
@@ -218,16 +219,25 @@ class Music(Cog_Extension):
                         )
                         return
 
+                    MAX_SONGS = 100  # 限制一次加入最大數量
+                    if len(entries) > MAX_SONGS:
+                        await interaction.followup.send(
+                            f"⚠️ 播放清單太長（{len(entries)} 首），最多只能加入 {MAX_SONGS} 首歌"
+                        )
+                        return
+
+                    count = 0
                     for video in entries:
                         video_url = f"https://www.youtube.com/watch?v={video['id']}"
-                        title = video.get("title", "未知標題")
-                        self.playlist_manager.add_song(guild_id, title, video_url)
+                        audio_url, title = self.player.download_audio(
+                            video_url
+                        )  # ✅ 正確抓音訊網址
+                        self.playlist_manager.add_song(guild_id, title, audio_url)
+                        count += 1
 
-                    await interaction.followup.send(
-                        f"✅ 已新增 {len(entries)} 首歌到歌單"
-                    )
+                    await interaction.followup.send(f"✅ 已新增 {count} 首歌到歌單")
             else:
-                # 如果是單首歌，使用既有邏輯
+                # 單首歌處理
                 audio_url, title = self.player.download_audio(url)
                 self.playlist_manager.add_song(guild_id, title, audio_url)
                 await interaction.followup.send(f"✅ 已新增 `{title}` 到本伺服器的歌單")
@@ -258,11 +268,9 @@ class Music(Cog_Extension):
         elif voice_client.channel != voice_channel:
             await voice_client.move_to(voice_channel)
 
-        for title, url in songs:
-            self.player.add_to_queue(url, title, playlist_name=guild_id)
+        self.player.current_playlist_id = guild_id  # ✅ 記錄當前播放的歌單 ID
 
-        if not voice_client.is_playing():
-            self.player.play_next(voice_client)
+        self.player.play_next(voice_client)
 
         await interaction.response.send_message("▶️ 正在播放本伺服器的歌單")
 
@@ -376,6 +384,15 @@ class Music(Cog_Extension):
 
         display = "\n".join(f"{i+1}. {title}" for i, (title, _) in enumerate(songs))
         await interaction.response.send_message(f"📀 本伺服器歌單內容：\n{display}")
+
+    @app_commands.command(name="clear_playlist", description="清除本伺服器所有歌")
+    async def clear_playlist(self, interaction: discord.Interaction):
+        guild_id = str(interaction.guild.id)
+        try:
+            self.playlist_manager.clear_playlist(guild_id)
+            await interaction.response.send_message("🗑 已清除本伺服器歌單")
+        except Exception as e:
+            await interaction.response.send_message(f"❌ 錯誤：{str(e)}")
 
     @app_commands.command(name="pause", description="暫停音樂")
     async def pause(self, interaction: discord.Interaction): ...

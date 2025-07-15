@@ -101,6 +101,60 @@ class Playlist(Cog_Extension):
                 conn.commit()
         conn.close()
 
+    def clear_playlist(self, guild_id):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM playlists WHERE guild_id = ?", (guild_id,))
+        result = cursor.fetchone()
+        if result:
+            playlist_id = result[0]
+            cursor.execute("DELETE FROM songs WHERE playlist_id = ?", (playlist_id,))
+            conn.commit()
+            print(f"🧹 已清空 `{guild_id}` 的歌單")
+        conn.close()
+
+    def pop_next_song(self, guild_id):
+        """取出並刪除這個 guild 的歌單中第一首歌"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT songs.id, songs.title, songs.url FROM songs
+            JOIN playlists ON songs.playlist_id = playlists.id
+            WHERE playlists.guild_id = ?
+            ORDER BY songs.id ASC LIMIT 1
+            """,
+            (guild_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return None
+
+        song_id, title, url = row
+
+        # 刪除這首
+        cursor.execute("DELETE FROM songs WHERE id = ?", (song_id,))
+        conn.commit()
+
+        # 如果清單已空，刪除 playlist（維持原本行為）
+        cursor.execute(
+            """
+            SELECT COUNT(*) FROM songs
+            JOIN playlists ON songs.playlist_id = playlists.id
+            WHERE playlists.guild_id = ?
+            """,
+            (guild_id,),
+        )
+        count = cursor.fetchone()[0]
+        if count == 0:
+            cursor.execute("DELETE FROM playlists WHERE guild_id = ?", (guild_id,))
+            print(f"🗑 自動刪除空歌單：{guild_id}")
+            conn.commit()
+
+        conn.close()
+        return title, url
+
 
 async def setup(bot):
     await bot.add_cog(Playlist(bot))
