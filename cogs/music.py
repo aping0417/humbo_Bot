@@ -8,6 +8,13 @@ import json
 import asyncio
 from cogs.playlist import Playlist
 from core.classes import Cog_Extension
+from spotipy import Spotify
+from spotipy.oauth2 import SpotifyClientCredentials
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 ydl_opts = {
     "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",  # 格式
@@ -25,6 +32,38 @@ ffmpeg_options = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
     "options": "-vn",
 }
+
+# 建立 Spotify 客戶端（建議用環境變數儲存）
+sp = Spotify(
+    auth_manager=SpotifyClientCredentials(
+        client_id=os.getenv("SPOTIPY_CLIENT_ID"),
+        client_secret=os.getenv("SPOTIPY_CLIENT_SECRET"),
+    )
+)
+
+
+def extract_spotify_track_info(url):
+    try:
+        if "track" in url:
+            track = sp.track(url)
+            if track and track.get("name") and track.get("artists"):
+                return [f"{track['name']} {track['artists'][0]['name']}"]
+            else:
+                return []
+
+        elif "playlist" in url:
+            playlist = sp.playlist_tracks(url)
+            result = []
+            for item in playlist["items"]:
+                track = item.get("track")
+                if track and track.get("name") and track.get("artists"):
+                    result.append(f"{track['name']} {track['artists'][0]['name']}")
+            return result
+
+    except Exception as e:
+        print(f"[Spotify] 錯誤: {e}")
+        return []
+
 
 # 設定 -reconnect 1 （斷線自動重連） -reconnect_streamed 1（處理Streaming Media會自動重連）
 # -reconnect_delay_max 5(斷線5秒內會自動重連) "options": "-vn" （只處理聲音）
@@ -97,14 +136,18 @@ class MusicPlayer:
         """安全地抓取穩定的音訊格式"""
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
+
+            # ✅ 若是 ytsearch: 回傳的是多個 entry（搜尋結果）
+            if "entries" in info:
+                info = info["entries"][0]  # 取第一個搜尋結果
+
             songtitle = info.get("title", "未知標題")
 
-            # 只抓 m4a itag=140 或 wbam itag=251
+            # 只抓 m4a itag=140 或 webm itag=251
             for f in info.get("formats", []):
                 if f["format_id"] in ["140", "251"]:
                     return f["url"], songtitle
 
-            # fallback 選擇 yt-dlp 最佳推薦的音訊
             return info["url"], songtitle
 
     # @app_commands.command(name="join", description="join to channel")    下次多寫一個app command 呼叫join
@@ -196,51 +239,55 @@ class Music(Cog_Extension):
     )
     async def add_song(self, interaction: discord.Interaction, url: str):
         await interaction.response.defer(thinking=True)
-
         guild_id = str(interaction.guild.id)
         self.playlist_manager.ensure_playlist_exists(guild_id)
 
         try:
-            if "playlist?" in url or "list=" in url:
-                ydl_opts_playlist = {
-                    "quiet": True,
-                    "extract_flat": "in_playlist",
-                    "noplaylist": False,
-                    "skip_download": True,
-                }
+            # ▓▓ Spotify 音樂 ▓▓
+            if "open.spotify.com" in url:
+                search_titles = extract_spotify_track_info(url)
+                if not search_titles:
+                    await interaction.followup.send(
+                        "❌ Spotify 無法解析或播放清單為空。"
+                    )
+                    return
 
-                with youtube_dl.YoutubeDL(ydl_opts_playlist) as ydl:
+                for keyword in search_titles:
+                    search_url = f"ytsearch:{keyword}"
+                    audio_url, title = self.player.download_audio(search_url)
+                    self.playlist_manager.add_song(guild_id, title, audio_url)
+
+                await interaction.followup.send(
+                    f"✅ 已新增 `{len(search_titles)}` 首 Spotify 歌曲到歌單"
+                )
+                return
+
+            # ▓▓ YouTube 播放清單 ▓▓
+            if "playlist?" in url or "list=" in url:
+                with youtube_dl.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=False)
                     entries = info.get("entries", [])
-
                     if not entries:
                         await interaction.followup.send(
                             "⚠️ 播放清單中沒有可加入的歌曲。"
                         )
                         return
 
-                    MAX_SONGS = 100  # 限制一次加入最大數量
-                    if len(entries) > MAX_SONGS:
-                        await interaction.followup.send(
-                            f"⚠️ 播放清單太長（{len(entries)} 首），最多只能加入 {MAX_SONGS} 首歌"
-                        )
-                        return
-
-                    count = 0
                     for video in entries:
                         video_url = f"https://www.youtube.com/watch?v={video['id']}"
-                        audio_url, title = self.player.download_audio(
-                            video_url
-                        )  # ✅ 正確抓音訊網址
-                        self.playlist_manager.add_song(guild_id, title, audio_url)
-                        count += 1
+                        title = video.get("title", "未知標題")
+                        self.playlist_manager.add_song(guild_id, title, video_url)
 
-                    await interaction.followup.send(f"✅ 已新增 {count} 首歌到歌單")
-            else:
-                # 單首歌處理
-                audio_url, title = self.player.download_audio(url)
-                self.playlist_manager.add_song(guild_id, title, audio_url)
-                await interaction.followup.send(f"✅ 已新增 `{title}` 到本伺服器的歌單")
+                    await interaction.followup.send(
+                        f"✅ 已新增 {len(entries)} 首歌到歌單"
+                    )
+                return
+
+            # ▓▓ 單首 YouTube 歌曲 ▓▓
+            audio_url, title = self.player.download_audio(url)
+            self.playlist_manager.add_song(guild_id, title, audio_url)
+            await interaction.followup.send(f"✅ 已新增 `{title}` 到本伺服器的歌單")
+
         except Exception as e:
             await interaction.followup.send(f"❌ 發生錯誤：{str(e)}")
 
