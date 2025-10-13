@@ -132,23 +132,38 @@ class MusicPlayer:
 
     USE_FORMAT_5 = True  # 可開關的 flag
 
-    def download_audio(self, url):
-        """安全地抓取穩定的音訊格式"""
+    def download_audio(self, url_or_keyword):
+        """從 URL 或關鍵字取得音訊"""
+        if (
+            not url_or_keyword.startswith("ytsearch:")
+            and "youtube.com" not in url_or_keyword
+            and "youtu.be" not in url_or_keyword
+        ):
+            # 自動加上 ytsearch 前綴
+            url_or_keyword = f"ytsearch:{url_or_keyword}"
+
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+            info = ydl.extract_info(url_or_keyword, download=False)
 
-            # ✅ 若是 ytsearch: 回傳的是多個 entry（搜尋結果）
             if "entries" in info:
-                info = info["entries"][0]  # 取第一個搜尋結果
+                info = info["entries"][0]  # 選取第一筆搜尋結果
 
-            songtitle = info.get("title", "未知標題")
+            title = info.get("title", "未知標題")
 
-            # 只抓 m4a itag=140 或 webm itag=251
+            # 嘗試挑選最佳格式（純音訊、包含 URL）
             for f in info.get("formats", []):
-                if f["format_id"] in ["140", "251"]:
-                    return f["url"], songtitle
+                if (
+                    f.get("acodec") != "none"
+                    and f.get("vcodec") == "none"
+                    and f.get("url")
+                ):
+                    print(
+                        f"✅ 獲得音訊格式：{f['format_id']} - {f['ext']} - {f.get('acodec')} / {f.get('vcodec')}"
+                    )
+                    return f["url"], title
 
-            return info["url"], songtitle
+            # 備用方案
+            return info["url"], title
 
     # @app_commands.command(name="join", description="join to channel")    下次多寫一個app command 呼叫join
 
@@ -273,13 +288,31 @@ class Music(Cog_Extension):
                         )
                         return
 
+                    added_count = 0
                     for video in entries:
-                        video_url = f"https://www.youtube.com/watch?v={video['id']}"
+                        video_id = video.get("id")
                         title = video.get("title", "未知標題")
-                        self.playlist_manager.add_song(guild_id, title, video_url)
+
+                        try:
+                            if not video_id:
+                                print("⚠️ 無法取得影片 ID，略過")
+                                continue
+
+                            video_url = f"https://www.youtube.com/watch?v={video_id}"
+                            audio_url, confirmed_title = self.player.download_audio(
+                                video_url
+                            )
+                            self.playlist_manager.add_song(
+                                guild_id, confirmed_title, audio_url
+                            )
+                            print(f"✅ 已加入：{confirmed_title}")
+                            added_count += 1
+
+                        except Exception as e:
+                            print(f"❌ 加入 `{title}` 時失敗：{str(e)}")
 
                     await interaction.followup.send(
-                        f"✅ 已新增 {len(entries)} 首歌到歌單"
+                        f"✅ 已新增 {added_count} 首歌曲到歌單！"
                     )
                 return
 
