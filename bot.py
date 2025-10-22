@@ -14,15 +14,23 @@ bot = commands.Bot(intents=discord.Intents.all(), command_prefix="+")
 
 @bot.event
 async def on_ready():
-    slash = await bot.tree.sync()
+    global music_cog_reference
     print("雪寶 啟動")
-    print(f"裝了{len(slash)}個斜線")
+    # await bot.tree.sync()  # 🚀 手動同步 Slash 指令
+    # print("✅ Slash 指令已同步！")
+
+    # 必須等所有 Cogs 載入後才能使用 view
+    if music_cog_reference:
+        bot.add_view(PlayerControlView(music_cog_reference))
+        print("✅ PlayerControlView 已載入")
+    else:
+        print("⚠️ PlayerControlView 尚未載入 music_cog_reference")
+        bot.add_view(PlayerControlView(music_cog_reference))
+
     # 顯示已載入的 Cogs
     # print("🔍 已載入的 Cogs:")
     # for ext in bot.extensions:
     # print(f"  - {ext}")
-    await bot.tree.sync()  # 🚀 手動同步 Slash 指令
-    print("✅ Slash 指令已同步！")
 
 
 @bot.command()
@@ -71,9 +79,29 @@ async def hellow(interaction: discord.Interaction):
     await interaction.response.send_message("hellow")
 
 
+@bot.tree.command(name="slash", description="同步指令")
+async def slash(interaction: discord.Interaction):
+    slash = await bot.tree.sync()
+    print(f"裝了{len(slash)}個斜線")
+    # await bot.tree.sync()  # 🚀 手動同步 Slash 指令
+    print("✅ Slash 指令已同步！")
+    await interaction.response.send_message("✅ Slash 指令已同步！")
+
+
+@bot.command()
+async def slash(ctx):
+    slash = await bot.tree.sync()
+    print(f"裝了{len(slash)}個斜線")
+    # await bot.tree.sync()  # 🚀 手動同步 Slash 指令
+    print("✅ Slash 指令已同步！")
+    await ctx.send(f"✅ Slash 指令已同步！")
+
+
 async def setup():
     for filename in os.listdir("./cogs"):
-        if filename.endswith(".py") and filename != "__init__.py":  # ✅ 跳過 `__init__.py`
+        if (
+            filename.endswith(".py") and filename != "__init__.py"
+        ):  # ✅ 跳過 `__init__.py`
             # if filename.endswith(".py"):
             await bot.load_extension(f"cogs.{filename[:-3]}")
     await bot.start(jdata["TOKEN"])
