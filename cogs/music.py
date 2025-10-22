@@ -12,6 +12,7 @@ from spotipy import Spotify
 from spotipy.oauth2 import SpotifyClientCredentials
 import os
 from dotenv import load_dotenv
+from discord import ui, Interaction
 
 load_dotenv()
 
@@ -150,7 +151,6 @@ class MusicPlayer:
 
             title = info.get("title", "未知標題")
 
-            # 嘗試挑選最佳格式（純音訊、包含 URL）
             for f in info.get("formats", []):
                 if (
                     f.get("acodec") != "none"
@@ -166,6 +166,55 @@ class MusicPlayer:
             return info["url"], title
 
     # @app_commands.command(name="join", description="join to channel")    下次多寫一個app command 呼叫join
+
+
+class MusicControlView(ui.View):
+    def __init__(self, player, voice_client):
+        super().__init__(timeout=None)
+        self.player = player
+        self.voice_client = voice_client
+
+    @ui.button(label="▶️ 播放", style=discord.ButtonStyle.green, custom_id="play")
+    async def play(self, interaction: Interaction, button: ui.Button):
+        if not self.voice_client.is_playing():
+            self.player.play_next(self.voice_client)
+            await interaction.response.send_message("▶️ 已開始播放！", ephemeral=True)
+        else:
+            await interaction.response.send_message("⚠️ 正在播放中。", ephemeral=True)
+
+    @ui.button(label="⏸️ 暫停", style=discord.ButtonStyle.blurple, custom_id="pause")
+    async def pause(self, interaction: Interaction, button: ui.Button):
+        if self.voice_client.is_playing():
+            self.voice_client.pause()
+            await interaction.response.send_message("⏸️ 已暫停播放。", ephemeral=True)
+        else:
+            await interaction.response.send_message(
+                "⚠️ 沒有正在播放的音樂。", ephemeral=True
+            )
+
+    @ui.button(label="⏭️ 跳過", style=discord.ButtonStyle.grey, custom_id="skip")
+    async def skip(self, interaction: Interaction, button: ui.Button):
+        if self.voice_client.is_playing():
+            self.voice_client.stop()
+            await interaction.response.send_message(
+                "⏭️ 已跳過當前歌曲。", ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                "⚠️ 沒有歌曲可跳過。", ephemeral=True
+            )
+
+    @ui.button(label="⏹️ 停止", style=discord.ButtonStyle.red, custom_id="stop")
+    async def stop(self, interaction: Interaction, button: ui.Button):
+        if self.voice_client.is_connected():
+            await self.voice_client.disconnect()
+            await interaction.response.send_message(
+                "⏹️ 已停止播放並離開語音頻道。", ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                "⚠️ 未連線至語音頻道。", ephemeral=True
+            )
 
 
 class Music(Cog_Extension):
@@ -198,7 +247,7 @@ class Music(Cog_Extension):
             await interaction.response.send_message("✅ 機器人已離開語音頻道！")
 
     @app_commands.command(name="join", description="加入語音")
-    async def join(self, interaction: discord.Interaction, url: str):
+    async def join(self, interaction: discord.Interaction):
         if interaction.user.voice is None:
             await interaction.response.send_message(
                 "❌ 你沒有加入語音頻道！", ephemeral=True
@@ -217,13 +266,6 @@ class Music(Cog_Extension):
             voice_client = interaction.guild.voice_client  # 加入後重新取得
         elif voice_client.channel != voice_channel:
             await voice_client.move_to(voice_channel)
-
-        title = self.player.add_to_queue(url, title=None, playlist_name=guild_id)
-
-        if not voice_client.is_playing():
-            self.player.play_next(voice_client)
-
-        await interaction.response.send_message(f"🎵 `{title}` 已加入播放列表！")
 
     @app_commands.command(name="pause", description="暫停音樂")
     async def pause(self, interaction: discord.Interaction):
@@ -476,6 +518,27 @@ class Music(Cog_Extension):
 
     @app_commands.command(name="pause", description="暫停音樂")
     async def pause(self, interaction: discord.Interaction): ...
+
+    @app_commands.command(name="panel", description="顯示音樂控制面板")
+    async def panel(self, interaction: discord.Interaction):
+        if interaction.user.voice is None:
+            await interaction.response.send_message(
+                "❌ 你尚未加入語音頻道！", ephemeral=True
+            )
+            return
+
+        voice_channel = interaction.user.voice.channel
+        voice_client = interaction.guild.voice_client
+
+        if voice_client is None:
+            voice_client = await voice_channel.connect()
+        elif voice_client.channel != voice_channel:
+            await voice_client.move_to(voice_channel)
+
+        view = MusicControlView(self.player, voice_client)
+        await interaction.response.send_message(
+            "🎛 音樂控制面板：", view=view, ephemeral=True
+        )
 
     # @app_commands.command()
     # async def skip(): ...
