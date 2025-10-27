@@ -176,6 +176,8 @@ class MusicControlView(ui.View):
 
     @ui.button(label="▶️ 播放", style=discord.ButtonStyle.green, custom_id="play")
     async def play(self, interaction: Interaction, button: ui.Button):
+        self.voice_client = discord.VoiceClient
+        # self.player = discord.VoiceProtocol
         if not self.voice_client.is_playing():
             self.player.play_next(self.voice_client)
             await interaction.response.send_message("▶️ 已開始播放！", ephemeral=True)
@@ -224,6 +226,10 @@ class Music(Cog_Extension):
         self.playlist_manager = Playlist(bot)  # ✅ 讓 `Music` 管理歌單
         # ✅ `Music` 內部包含 `MusicPlayer`
         self.player = MusicPlayer(self.playlist_manager)
+
+        # ✅ 這裡註冊控制面板 View
+        bot.add_view(MusicControlView(self.player, voice_client=None))
+        print("✅ Music Cog 已註冊控制面板 View")
 
     async def __join(self, interaction: discord.Interaction):
 

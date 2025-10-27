@@ -14,18 +14,9 @@ bot = commands.Bot(intents=discord.Intents.all(), command_prefix="+")
 
 @bot.event
 async def on_ready():
-    global music_cog_reference
     print("雪寶 啟動")
     # await bot.tree.sync()  # 🚀 手動同步 Slash 指令
     # print("✅ Slash 指令已同步！")
-
-    # 必須等所有 Cogs 載入後才能使用 view
-    if music_cog_reference:
-        bot.add_view(PlayerControlView(music_cog_reference))
-        print("✅ PlayerControlView 已載入")
-    else:
-        print("⚠️ PlayerControlView 尚未載入 music_cog_reference")
-        bot.add_view(PlayerControlView(music_cog_reference))
 
     # 顯示已載入的 Cogs
     # print("🔍 已載入的 Cogs:")
