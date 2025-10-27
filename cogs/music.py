@@ -12,7 +12,7 @@ from spotipy import Spotify
 from spotipy.oauth2 import SpotifyClientCredentials
 import os
 from dotenv import load_dotenv
-from discord import ui, Interaction
+from discord import ui, Interaction, ButtonStyle
 
 load_dotenv()
 
@@ -169,54 +169,73 @@ class MusicPlayer:
 
 
 class MusicControlView(ui.View):
-    def __init__(self, player, voice_client):
+    def __init__(self, player):
         super().__init__(timeout=None)
-        self.player = player
-        self.voice_client = voice_client
+        self.player = player  # 只保存 player，不保存 voice_client
 
-    @ui.button(label="▶️ 播放", style=discord.ButtonStyle.green, custom_id="play")
+    @ui.button(label="▶️ 播放", style=ButtonStyle.green, custom_id="play")
     async def play(self, interaction: Interaction, button: ui.Button):
-        self.voice_client = discord.VoiceClient
-        # self.player = discord.VoiceProtocol
-        if not self.voice_client.is_playing():
-            self.player.play_next(self.voice_client)
-            await interaction.response.send_message("▶️ 已開始播放！", ephemeral=True)
-        else:
-            await interaction.response.send_message("⚠️ 正在播放中。", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)  # 先回應，避免逾時
+        try:
+            vc = interaction.guild.voice_client
+            if not vc or not vc.is_connected():
+                await interaction.followup.send("❌ 我不在語音頻道裡。")
+                return
+            if not vc.is_playing():
+                self.player.play_next(vc)
+                await interaction.followup.send("▶️ 已開始播放！")
+            else:
+                await interaction.followup.send("ℹ️ 正在播放中。")
+        except Exception as e:
+            await interaction.followup.send(f"⚠️ 播放失敗：{e}")
 
-    @ui.button(label="⏸️ 暫停", style=discord.ButtonStyle.blurple, custom_id="pause")
+    @ui.button(label="⏸️ 暫停", style=ButtonStyle.blurple, custom_id="pause")
     async def pause(self, interaction: Interaction, button: ui.Button):
-        if self.voice_client.is_playing():
-            self.voice_client.pause()
-            await interaction.response.send_message("⏸️ 已暫停播放。", ephemeral=True)
-        else:
-            await interaction.response.send_message(
-                "⚠️ 沒有正在播放的音樂。", ephemeral=True
-            )
+        await interaction.response.defer(ephemeral=True)
+        try:
+            vc = interaction.guild.voice_client
+            if not vc or not vc.is_connected():
+                await interaction.followup.send("❌ 我不在語音頻道裡。")
+                return
+            if vc.is_playing():
+                vc.pause()
+                await interaction.followup.send("⏸️ 已暫停播放。")
+            elif vc.is_paused():
+                vc.resume()
+                await interaction.followup.send("▶️ 已繼續播放。")
+            else:
+                await interaction.followup.send("⚠️ 目前沒有正在播放的音樂。")
+        except Exception as e:
+            await interaction.followup.send(f"⚠️ 暫停/繼續失敗：{e}")
 
-    @ui.button(label="⏭️ 跳過", style=discord.ButtonStyle.grey, custom_id="skip")
+    @ui.button(label="⏭️ 跳過", style=ButtonStyle.grey, custom_id="skip")
     async def skip(self, interaction: Interaction, button: ui.Button):
-        if self.voice_client.is_playing():
-            self.voice_client.stop()
-            await interaction.response.send_message(
-                "⏭️ 已跳過當前歌曲。", ephemeral=True
-            )
-        else:
-            await interaction.response.send_message(
-                "⚠️ 沒有歌曲可跳過。", ephemeral=True
-            )
+        await interaction.response.defer(ephemeral=True)
+        try:
+            vc = interaction.guild.voice_client
+            if not vc or not vc.is_connected():
+                await interaction.followup.send("❌ 我不在語音頻道裡。")
+                return
+            if vc.is_playing() or vc.is_paused():
+                vc.stop()  # 會觸發 after()，進而 self.player.play_next(...)
+                await interaction.followup.send("⏭️ 已跳過。")
+            else:
+                await interaction.followup.send("⚠️ 沒有歌曲可跳過。")
+        except Exception as e:
+            await interaction.followup.send(f"⚠️ 跳過失敗：{e}")
 
-    @ui.button(label="⏹️ 停止", style=discord.ButtonStyle.red, custom_id="stop")
+    @ui.button(label="⏹️ 停止", style=ButtonStyle.red, custom_id="stop")
     async def stop(self, interaction: Interaction, button: ui.Button):
-        if self.voice_client.is_connected():
-            await self.voice_client.disconnect()
-            await interaction.response.send_message(
-                "⏹️ 已停止播放並離開語音頻道。", ephemeral=True
-            )
-        else:
-            await interaction.response.send_message(
-                "⚠️ 未連線至語音頻道。", ephemeral=True
-            )
+        await interaction.response.defer(ephemeral=True)
+        try:
+            vc = interaction.guild.voice_client
+            if vc and vc.is_connected():
+                await vc.disconnect()
+                await interaction.followup.send("⏹️ 已停止播放並離開語音頻道。")
+            else:
+                await interaction.followup.send("⚠️ 我沒有連線到語音頻道。")
+        except Exception as e:
+            await interaction.followup.send(f"⚠️ 停止失敗：{e}")
 
 
 class Music(Cog_Extension):
@@ -228,7 +247,7 @@ class Music(Cog_Extension):
         self.player = MusicPlayer(self.playlist_manager)
 
         # ✅ 這裡註冊控制面板 View
-        bot.add_view(MusicControlView(self.player, voice_client=None))
+        bot.add_view(MusicControlView(self.player))
         print("✅ Music Cog 已註冊控制面板 View")
 
     async def __join(self, interaction: discord.Interaction):
@@ -522,8 +541,32 @@ class Music(Cog_Extension):
         except Exception as e:
             await interaction.response.send_message(f"❌ 錯誤：{str(e)}")
 
-    @app_commands.command(name="pause", description="暫停音樂")
-    async def pause(self, interaction: discord.Interaction): ...
+    @app_commands.command(name="pause", description="暫停 / 繼續 播放")
+    async def pause(self, interaction: discord.Interaction):
+        voice_client = interaction.guild.voice_client
+
+        if voice_client is None or not voice_client.is_connected():
+            await interaction.response.send_message(
+                "❌ 我不在任何語音頻道裡。", ephemeral=True
+            )
+            return
+
+        # 正在播放 → 暫停
+        if voice_client.is_playing():
+            voice_client.pause()
+            await interaction.response.send_message("⏸️ 已暫停播放。", ephemeral=True)
+            return
+
+        # 已暫停 → 繼續
+        if voice_client.is_paused():
+            voice_client.resume()
+            await interaction.response.send_message("▶️ 已繼續播放。", ephemeral=True)
+            return
+
+        # 沒有正在播放的來源
+        await interaction.response.send_message(
+            "⚠️ 目前沒有正在播放的音樂。", ephemeral=True
+        )
 
     @app_commands.command(name="panel", description="顯示音樂控制面板")
     async def panel(self, interaction: discord.Interaction):
@@ -535,13 +578,12 @@ class Music(Cog_Extension):
 
         voice_channel = interaction.user.voice.channel
         voice_client = interaction.guild.voice_client
-
         if voice_client is None:
             voice_client = await voice_channel.connect()
         elif voice_client.channel != voice_channel:
             await voice_client.move_to(voice_channel)
 
-        view = MusicControlView(self.player, voice_client)
+        view = MusicControlView(self.player)  # ← 不再傳 voice_client
         await interaction.response.send_message(
             "🎛 音樂控制面板：", view=view, ephemeral=True
         )
