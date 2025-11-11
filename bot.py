@@ -5,9 +5,23 @@ from discord import app_commands
 import json
 import asyncio
 import os
+import logging
+
 
 with open("setting.json", mode="r", encoding="utf8") as jflie:
     jdata = json.load(jflie)
+
+# 設定全域 logger
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(),  # 顯示在終端機
+        logging.FileHandler("bot.log", encoding="utf-8"),  # 輸出到檔案
+    ],
+)
+
+logger = logging.getLogger("bot")
 
 bot = commands.Bot(intents=discord.Intents.all(), command_prefix="+")
 
@@ -15,6 +29,7 @@ bot = commands.Bot(intents=discord.Intents.all(), command_prefix="+")
 @bot.event
 async def on_ready():
     print("雪寶 啟動")
+    logger.info("雪寶 啟動")
     # await bot.tree.sync()  # 🚀 手動同步 Slash 指令
     # print("✅ Slash 指令已同步！")
 

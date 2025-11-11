@@ -13,9 +13,11 @@ from spotipy.oauth2 import SpotifyClientCredentials
 import os
 from dotenv import load_dotenv
 from discord import ui, Interaction, ButtonStyle
+import logging
 
 load_dotenv()
 
+log = logging.getLogger("music")
 
 ydl_opts = {
     "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",  # 格式
@@ -92,18 +94,20 @@ class MusicPlayer:
 
     def play_next(self, voice_client):
         if not voice_client or not voice_client.is_connected():
-            print("⚠️ Voice client 不存在或未連線")
+            log.warning("⚠️ Voice client 不存在或未連線")
             return
 
         if self.play_queue:
             url, title, playlist_name = self.play_queue.pop(0)
+            log.info(f"從佇列播放：{title} ({url}), 來源 playlist={playlist_name}")
         elif self.current_playlist_id:
             result = self.playlist_manager.pop_next_song(self.current_playlist_id)
             if result:
                 title, url = result
                 playlist_name = self.current_playlist_id
+                log.info(f"從資料庫播放：{title} ({url})，guild={playlist_name}")
             else:
-                print("📭 播放清單已空")
+                log.info(f"guild={self.current_playlist_id} 歌單已空，停止播放")
                 self.current_playlist_id = None
                 # 播放結束 → 嘗試刷新面板（讓播放鍵恢復可按）
                 vc = voice_client
@@ -111,6 +115,7 @@ class MusicPlayer:
                 loop.create_task(self._maybe_update_panel(vc))
                 return
         else:
+            log.info("沒有可播放的歌曲")
             return
 
         try:
@@ -119,7 +124,7 @@ class MusicPlayer:
                 source,
                 after=lambda e: self._after_song(e, voice_client, playlist_name, url),
             )
-            print(f"▶️ 正在播放：{title}")
+            log.info(f"▶️ 正在播放：{title}")
 
             # 開播 → 播放鍵應禁用、暫停鍵顯示「暫停」
             vc = voice_client
@@ -127,12 +132,12 @@ class MusicPlayer:
             loop.create_task(self._maybe_update_panel(vc))
 
         except Exception as e:
-            print(f"❌ 播放失敗：{e}")
+            log.exception(f"❌ 播放失敗：{e}")
             self.play_next(voice_client)
 
     def _after_song(self, error, voice_client, playlist_name, url):
         if error:
-            print(f"⚠️ 播放錯誤：{error}")
+            log.error(f"⚠️ 播放錯誤：{error} | {url}")
         # 下一首
         loop = voice_client.client.loop
         loop.call_soon_threadsafe(self.play_next, voice_client)
@@ -143,8 +148,8 @@ class MusicPlayer:
         else:
             real_url = url  # 如果已經有 title，代表是資料庫來的，保持原樣
 
-        print(f"📌 加入隊列的網址：{real_url}")
         self.play_queue.append((real_url, title, playlist_name))
+        log.info(f"加入佇列：{title} ({real_url}) playlist={playlist_name}")
         return title
 
     # def add_to_queue(self, url):
@@ -157,6 +162,7 @@ class MusicPlayer:
 
     def download_audio(self, url_or_keyword):
         """從 URL 或關鍵字取得音訊"""
+        original = url_or_keyword
         if (
             not url_or_keyword.startswith("ytsearch:")
             and "youtube.com" not in url_or_keyword
@@ -164,12 +170,14 @@ class MusicPlayer:
         ):
             # 自動加上 ytsearch 前綴
             url_or_keyword = f"ytsearch:{url_or_keyword}"
+            log.info(f"使用 ytsearch 搜尋：{original}")
 
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url_or_keyword, download=False)
 
             if "entries" in info:
                 info = info["entries"][0]  # 選取第一筆搜尋結果
+                log.info(f"ytsearch 命中：{info.get('title')}")
 
             title = info.get("title", "未知標題")
 
@@ -179,12 +187,13 @@ class MusicPlayer:
                     and f.get("vcodec") == "none"
                     and f.get("url")
                 ):
-                    print(
-                        f"✅ 獲得音訊格式：{f['format_id']} - {f['ext']} - {f.get('acodec')} / {f.get('vcodec')}"
+                    log.info(
+                        f"選用格式：{f['format_id']} - {f['ext']} - {f.get('acodec')} / {f.get('vcodec')}"
                     )
                     return f["url"], title
 
             # 備用方案
+            log.warning(f"未找到理想音訊格式，改用預設 url：{title}")
             return info["url"], title
 
     def ensure_start_from_db(self, guild_id: str) -> bool:
@@ -262,6 +271,9 @@ class MusicControlView(ui.View):
             self._set_pause_visual(paused=False)
             await interaction.response.edit_message(view=self)
             await interaction.followup.send("▶️ 開始播放！", ephemeral=True)
+            log.info(
+                f"[button:play] 觸發者={interaction.user} guild={interaction.guild.id}"
+            )
 
         except Exception as e:
             if not interaction.response.is_done():
@@ -466,6 +478,7 @@ class Music(Cog_Extension):
     async def add_song(self, interaction: discord.Interaction, url: str):
         await interaction.response.defer(thinking=True)
         guild_id = str(interaction.guild.id)
+        log.info(f"[add_song] guild={guild_id} user={interaction.user} url={url}")
         self.playlist_manager.ensure_playlist_exists(guild_id)
 
         try:
@@ -486,6 +499,10 @@ class Music(Cog_Extension):
                 await interaction.followup.send(
                     f"✅ 已新增 `{len(search_titles)}` 首 Spotify 歌曲到歌單"
                 )
+                log.info(
+                    f"[add_song] Spotify → 實際新增 {len(search_titles)} 首到 guild={guild_id}"
+                )
+
                 return
 
             # ▓▓ YouTube 播放清單 ▓▓
@@ -530,12 +547,17 @@ class Music(Cog_Extension):
                     await interaction.followup.send(
                         f"✅ 已新增 {added_count} 首歌曲到歌單！"
                     )
+                    log.info(
+                        f"[add_song] YT playlist 解析，共 {len(entries)} 筆，成功加入 {added_count} 首 (guild={guild_id})"
+                    )
+
                 return
 
             # ▓▓ 單首 YouTube 歌曲 ▓▓
             audio_url, title = self.player.download_audio(url)
             self.playlist_manager.add_song(guild_id, title, audio_url)
             await interaction.followup.send(f"✅ 已新增 `{title}` 到本伺服器的歌單")
+            log.info(f"[add_song] 單首 YT：{title} 加入 guild={guild_id}")
 
         except Exception as e:
             await interaction.followup.send(f"❌ 發生錯誤：{str(e)}")
@@ -575,6 +597,7 @@ class Music(Cog_Extension):
         await self._refresh_panel_ui(
             str(interaction.guild.id), interaction.guild.voice_client
         )
+        log.info(f"[play_playlist] guild={guild_id} by {interaction.user}")
 
     @app_commands.command(name="play", description="撥放音樂")
     async def play(self, interaction: discord.Interaction, url: str):
@@ -742,6 +765,9 @@ class Music(Cog_Extension):
             await vc.move_to(voice_channel)
 
         await self._send_or_replace_panel(interaction, vc)
+        log.info(
+            f"[panel] 建立或更新面板 guild={interaction.guild.id} by {interaction.user}"
+        )
 
     # @app_commands.command()
     # async def skip(): ...
