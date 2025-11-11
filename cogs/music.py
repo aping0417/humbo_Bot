@@ -401,32 +401,38 @@ class Music(Cog_Extension):
             print(f"[refresh_panel_ui] {e}")
 
     async def _send_or_replace_panel(self, interaction: discord.Interaction, vc):
-        """發送或替換公會的唯一面板（公開訊息）"""
+        """發送或更新本公會唯一的公開控制面板訊息（已在 /panel 中 defer）"""
         guild_id = str(interaction.guild.id)
-        # 若已有舊面板，先嘗試編輯它；失敗再重發
         view = MusicControlView(self.player)
         view.sync_with_voice(vc)
 
         rec = self.panel_map.get(guild_id)
+
+        # 如果有舊面板，嘗試更新
         if rec:
+            channel_id, message_id = rec
             try:
-                channel_id, message_id = rec
                 channel = self.bot.get_channel(
                     channel_id
                 ) or await self.bot.fetch_channel(channel_id)
                 msg = await channel.fetch_message(message_id)
                 await msg.edit(content="🎛 音樂控制面板：", view=view)
-                await interaction.response.send_message(
-                    "✅ 已更新面板（已存在）。", delete_after=5
+
+                # 因為 /panel 已經 defer，所以這裡用 followup
+                await interaction.followup.send(
+                    "✅ 已更新現有控制面板。", ephemeral=True
                 )
                 return
-            except Exception:
-                pass  # 舊訊息可能被刪了，改為重發
+            except Exception as e:
+                # 舊訊息不見/失敗就重建
+                log.warning(f"[panel] 舊面板更新失敗，改為建立新面板：{e}")
 
-        # 發送新面板（公開）
-        await interaction.response.send_message("🎛 音樂控制面板：", view=view)
-        sent = await interaction.original_response()
+        # 沒有舊面板就建立新的（公開訊息）
+        sent = await interaction.followup.send("🎛 音樂控制面板：", view=view)
         self.panel_map[guild_id] = (sent.channel.id, sent.id)
+        log.info(
+            f"[panel] 建立新控制面板 guild={guild_id} ch={sent.channel.id} msg={sent.id}"
+        )
 
     @app_commands.command(name="leave", description="讓機器人離開語音頻道")
     async def leave(self, interaction: discord.Interaction):
@@ -750,6 +756,7 @@ class Music(Cog_Extension):
         name="panel", description="顯示音樂控制面板（公開訊息，全員可操作）"
     )
     async def panel(self, interaction: discord.Interaction):
+        # 必須在語音頻道
         if interaction.user.voice is None:
             await interaction.response.send_message(
                 "❌ 你尚未加入語音頻道！", ephemeral=True
@@ -759,15 +766,38 @@ class Music(Cog_Extension):
         voice_channel = interaction.user.voice.channel
         vc = interaction.guild.voice_client
 
-        if vc is None:
-            vc = await voice_channel.connect()
-        elif vc.channel != voice_channel:
-            await vc.move_to(voice_channel)
+        # 先 defer，避免語音連線超過 3 秒導致互動過期
+        await interaction.response.defer(thinking=True)
 
+        try:
+            if vc is None:
+                # 沒有連線 → 直接照 join_test 的寫法連
+                vc = await voice_channel.connect(reconnect=False)
+                log.info(
+                    f"[panel] 新語音連線 guild={interaction.guild.id} ch={voice_channel.id}"
+                )
+
+            elif vc.channel != voice_channel:
+                # 已連到別的語音 → 移過來
+                await vc.move_to(voice_channel)
+                log.info(
+                    f"[panel] 移動語音連線 guild={interaction.guild.id} ch={voice_channel.id}"
+                )
+
+            elif not vc.is_connected():
+                # 有 vc 但掛掉了 → 重連
+                vc = await voice_channel.connect(reconnect=False)
+                log.info(
+                    f"[panel] 重新建立語音連線 guild={interaction.guild.id} ch={voice_channel.id}"
+                )
+
+        except Exception as e:
+            log.exception(f"[panel] 語音連線失敗 guild={interaction.guild.id}")
+            await interaction.followup.send(f"❌ 無法連線語音頻道：{e}", ephemeral=True)
+            return
+
+        # 語音連線成功 → 建立或更新面板
         await self._send_or_replace_panel(interaction, vc)
-        log.info(
-            f"[panel] 建立或更新面板 guild={interaction.guild.id} by {interaction.user}"
-        )
 
     # @app_commands.command()
     # async def skip(): ...

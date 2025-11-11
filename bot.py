@@ -103,6 +103,27 @@ async def slash(ctx):
     await ctx.send(f"✅ Slash 指令已同步！")
 
 
+@bot.tree.command(name="join_test", description="單純測試語音連線")
+async def join_test(interaction: discord.Interaction):
+    if interaction.user.voice is None:
+        await interaction.response.send_message("你不在語音頻道裡。", ephemeral=True)
+        return
+
+    channel = interaction.user.voice.channel
+
+    try:
+        await interaction.response.defer(ephemeral=True)
+        vc = interaction.guild.voice_client
+        if vc is None:
+            vc = await channel.connect(reconnect=False)
+        elif vc.channel != channel:
+            await vc.move_to(channel)
+
+        await interaction.followup.send("✅ join_test 成功加入語音。", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ join_test 失敗：{e}", ephemeral=True)
+
+
 async def setup():
     for filename in os.listdir("./cogs"):
         if (
