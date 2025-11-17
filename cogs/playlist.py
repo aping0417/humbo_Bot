@@ -155,6 +155,45 @@ class Playlist(Cog_Extension):
         conn.close()
         return title, url
 
+    def pop_random_song(self, guild_id):
+        """隨機取出並刪除這個 guild 的一首歌"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT songs.id, songs.title, songs.url FROM songs
+            JOIN playlists ON songs.playlist_id = playlists.id
+            WHERE playlists.guild_id = ?
+            ORDER BY RANDOM() LIMIT 1
+            """,
+            (guild_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return None
+
+        song_id, title, url = row
+        cursor.execute("DELETE FROM songs WHERE id = ?", (song_id,))
+        conn.commit()
+
+        # 若歌單空了就清掉 playlist（維持你原本的行為）
+        cursor.execute(
+            """
+            SELECT COUNT(*) FROM songs
+            JOIN playlists ON songs.playlist_id = playlists.id
+            WHERE playlists.guild_id = ?
+            """,
+            (guild_id,),
+        )
+        count = cursor.fetchone()[0]
+        if count == 0:
+            cursor.execute("DELETE FROM playlists WHERE guild_id = ?", (guild_id,))
+            conn.commit()
+
+        conn.close()
+        return title, url
+
 
 async def setup(bot):
     await bot.add_cog(Playlist(bot))

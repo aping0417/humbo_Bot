@@ -130,6 +130,7 @@ class MusicPlayer:
         self.now_playing: dict | None = (
             None  # {"title": str, "url": str | None, "playlist": str | None}
         )
+        self.shuffle_map: dict[str, bool] = {}  # guild_id -> 是否隨機
 
     def set_panel_updater(self, updater_coro):
         """註冊一個協程函式：async def updater_coro(guild_id, vc): ..."""
@@ -153,17 +154,30 @@ class MusicPlayer:
             log.warning("⚠️ Voice client 不存在或未連線")
             return
 
+        # 目前所在公會 ID
+        gid = str(voice_client.guild.id)
+
+        # 1) 先吃記憶體佇列
         if self.play_queue:
             url, title, playlist_name = self.play_queue.pop(0)
             log.info(f"從佇列播放：{title} ({url}), 來源 playlist={playlist_name}")
+
+        # 2) 再從資料庫取（依隨機/順序）
         elif self.current_playlist_id:
-            result = self.playlist_manager.pop_next_song(self.current_playlist_id)
+            # 以 current_playlist_id 為主（你的流程就是用它指向本 guild 的歌單）
+            gid = self.current_playlist_id
+            if self.is_shuffle(gid):
+                result = self.playlist_manager.pop_random_song(gid)
+            else:
+                result = self.playlist_manager.pop_next_song(gid)
+
             if result:
                 title, url = result
-                playlist_name = self.current_playlist_id
-                log.info(f"從資料庫播放：{title} ({url})，guild={playlist_name}")
+                playlist_name = gid
+                src = "隨機" if self.is_shuffle(gid) else "資料庫"
+                log.info(f"從{src}播放：{title} ({url})，guild={playlist_name}")
             else:
-                log.info(f"guild={self.current_playlist_id} 歌單已空，停止播放")
+                log.info(f"guild={gid} 歌單已空，停止播放")
                 self.current_playlist_id = None
                 self.now_playing = None  # ✅ 清空
                 # 播放結束 → 嘗試刷新面板（讓播放鍵恢復可按）
@@ -171,6 +185,7 @@ class MusicPlayer:
                 loop = vc.client.loop
                 loop.create_task(self._maybe_update_panel(vc))
                 return
+
         else:
             log.info("沒有可播放的歌曲")
             self.now_playing = None  # ✅ 清空
@@ -266,6 +281,12 @@ class MusicPlayer:
         except Exception as e:
             print(f"[ensure_start_from_db] error: {e}")
             return False
+
+    def set_shuffle(self, guild_id: str, enabled: bool):
+        self.shuffle_map[guild_id] = enabled
+
+    def is_shuffle(self, guild_id: str) -> bool:
+        return self.shuffle_map.get(guild_id, False)
 
 
 class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
@@ -370,6 +391,23 @@ class MusicControlView(ui.View):
         )
         playing_or_paused = bool(vc and (vc.is_playing() or vc.is_paused()))
         self._set_now_disabled(not (playing_or_paused and np))
+
+    def _set_shuffle_visual(self, enabled: bool):
+        b = self._btn("shuffle")
+        if not b:
+            return
+        b.label = "🔀 隨機：開" if enabled else "🔀 隨機：關"
+        b.style = ButtonStyle.green if enabled else ButtonStyle.grey
+
+    def sync_with_voice(self, vc):
+        # 既有：暫停/播放狀態
+        self._set_pause_visual(paused=bool(vc and vc.is_paused()))
+        self._set_play_disabled(bool(vc and vc.is_playing()))
+
+        # 新增：依 guild 狀態顯示隨機顏色/文字
+        gid = str(vc.guild.id) if vc else None
+        if gid:
+            self._set_shuffle_visual(self.player.is_shuffle(gid))
 
     # ▶️ 播放（公開訊息：直接 edit_message）
     @ui.button(label="▶️ 播放", style=ButtonStyle.green, custom_id="play")
@@ -494,7 +532,7 @@ class MusicControlView(ui.View):
             else:
                 await interaction.followup.send(f"⚠️ 停止失敗：{e}")
 
-    @ui.button(label="➕ 載入歌曲", style=ButtonStyle.gray, custom_id="add")
+    @ui.button(label="➕ 載入歌曲", style=ButtonStyle.green, custom_id="add")
     async def add(self, interaction: Interaction, button: ui.Button):
         # 開 Modal
         modal = AddSongModal(self.player, self.player.playlist_manager)
@@ -554,6 +592,21 @@ class MusicControlView(ui.View):
                 await interaction.followup.send(
                     f"⚠️ 取得現正播放失敗：{e}", ephemeral=True
                 )
+
+    @ui.button(label="🔀 隨機：關", style=ButtonStyle.grey, custom_id="shuffle")
+    async def shuffle(self, interaction: Interaction, button: ui.Button):
+        gid = str(interaction.guild.id)
+        new_state = not self.player.is_shuffle(gid)
+        self.player.set_shuffle(gid, new_state)
+
+        # 更新自己外觀
+        self._set_shuffle_visual(new_state)
+
+        # 公開面板要用 edit_message 同步給所有人
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send(
+            f"🔀 隨機播放已{'開啟' if new_state else '關閉'}。", ephemeral=True
+        )
 
 
 class Music(Cog_Extension):
