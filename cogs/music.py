@@ -378,7 +378,7 @@ class MusicControlView(ui.View):
             vc = interaction.guild.voice_client
             if not vc or not vc.is_connected():
                 await interaction.response.send_message(
-                    "❌ 我不在語音頻道裡。先用 `/join` 或 `/panel`。"
+                    "❌ 我不在語音頻道裡。先用 `/join` 或 `/panel`。", ephemeral=True
                 )
                 return
 
@@ -386,7 +386,7 @@ class MusicControlView(ui.View):
             has_db_songs = self.player.ensure_start_from_db(guild_id)
             if not self.player.play_queue and not has_db_songs:
                 await interaction.response.send_message(
-                    "📭 沒有可播放的歌曲。先用 `/add_song` 加一些吧。"
+                    "📭 沒有可播放的歌曲。先用 `/add_song` 加一些吧。", ephemeral=True
                 )
                 return
 
@@ -404,7 +404,9 @@ class MusicControlView(ui.View):
 
         except Exception as e:
             if not interaction.response.is_done():
-                await interaction.response.send_message(f"⚠️ 播放失敗：{e}")
+                await interaction.response.send_message(
+                    f"⚠️ 播放失敗：{e}", ephemeral=True
+                )
             else:
                 await interaction.followup.send(f"⚠️ 播放失敗：{e}")
 
@@ -414,7 +416,9 @@ class MusicControlView(ui.View):
         try:
             vc = interaction.guild.voice_client
             if not vc or not vc.is_connected():
-                await interaction.response.send_message("❌ 我不在語音頻道裡。")
+                await interaction.response.send_message(
+                    "❌ 我不在語音頻道裡。", ephemeral=True
+                )
                 return
 
             if vc.is_playing():
@@ -430,7 +434,9 @@ class MusicControlView(ui.View):
                 await interaction.followup.send("▶️ 已繼續播放。", ephemeral=True)
 
             else:
-                await interaction.response.send_message("⚠️ 目前沒有正在播放的音樂。")
+                await interaction.response.send_message(
+                    "⚠️ 目前沒有正在播放的音樂。", ephemeral=True
+                )
 
         except Exception as e:
             if not interaction.response.is_done():
@@ -444,14 +450,21 @@ class MusicControlView(ui.View):
         try:
             vc = interaction.guild.voice_client
             if not vc or not vc.is_connected():
-                await interaction.response.send_message("❌ 我不在語音頻道裡。")
+                await interaction.response.send_message(
+                    "❌ 我不在語音頻道裡。", ephemeral=True
+                )
                 return
             if vc.is_playing() or vc.is_paused():
                 vc.stop()
                 await interaction.response.edit_message(view=self)
-                await interaction.followup.send("⏭️ 已跳過。", ephemeral=True)
+                await interaction.followup.send(
+                    "⏭️ 已跳過。",
+                    ephemeral=True,
+                )
             else:
-                await interaction.response.send_message("⚠️ 沒有歌曲可跳過。")
+                await interaction.response.send_message(
+                    "⚠️ 沒有歌曲可跳過。", ephemeral=True
+                )
         except Exception as e:
             if not interaction.response.is_done():
                 await interaction.response.send_message(f"⚠️ 跳過失敗：{e}")
@@ -472,7 +485,9 @@ class MusicControlView(ui.View):
                     "⏹️ 已停止播放並離開語音頻道。", ephemeral=True
                 )
             else:
-                await interaction.response.send_message("⚠️ 我沒有連線到語音頻道。")
+                await interaction.response.send_message(
+                    "⚠️ 我沒有連線到語音頻道。", ephemeral=True
+                )
         except Exception as e:
             if not interaction.response.is_done():
                 await interaction.response.send_message(f"⚠️ 停止失敗：{e}")
@@ -512,10 +527,7 @@ class MusicControlView(ui.View):
                 return
 
             title = np.get("title", "未知標題")
-            playlist = np.get("playlist")
             lines = [f"🎶 **{title}**"]
-            if playlist:
-                lines.append(f"📀 來源歌單：`{playlist}`")
 
             # 用 ephemeral 告知點擊者；不影響公開面板
             if not interaction.response.is_done():
@@ -892,18 +904,36 @@ class Music(Cog_Extension):
         # 語音連線成功 → 建立或更新面板
         await self._send_or_replace_panel(interaction, vc)
 
+    # 在 Music Cog 裡補一支指令（或覆蓋你現有的）
     @app_commands.command(name="nowplaying", description="顯示目前正在播放的歌曲")
     async def nowplaying(self, interaction: discord.Interaction):
         vc = interaction.guild.voice_client
-        np = (
-            self.player.get_now_playing()
-            if hasattr(self.player, "get_now_playing")
-            else self.player.now_playing
-        )
+        np = self.player.get_now_playing()
+
+        gid = interaction.guild.id
+        vc_state = {
+            "exist": bool(vc),
+            "connected": bool(vc and vc.is_connected()),
+            "playing": bool(vc and vc.is_playing()),
+            "paused": bool(vc and vc.is_paused()),
+            "channel_id": getattr(getattr(vc, "channel", None), "id", None),
+        }
+        log.info(f"[NOW CMD] guild={gid} vc_state={vc_state} now_playing={np}")
+
+        # 把判斷邏輯也寫到訊息，幫你對比
+        debug_lines = [
+            f"vc.exist={vc_state['exist']}, connected={vc_state['connected']}, "
+            f"playing={vc_state['playing']}, paused={vc_state['paused']}, "
+            f"ch={vc_state['channel_id']}",
+            f"now_playing={np}",
+        ]
 
         if not vc or not vc.is_connected() or not np:
             await interaction.response.send_message(
-                "📭 目前沒有正在播放的音樂。", ephemeral=True
+                "📫 目前沒有正在播放的音樂。\n```text\n"
+                + "\n".join(debug_lines)
+                + "\n```",
+                ephemeral=True,
             )
             return
 
@@ -912,7 +942,11 @@ class Music(Cog_Extension):
         msg = f"🎶 **{title}**"
         if playlist:
             msg += f"\n📀 來源歌單：`{playlist}`"
-        await interaction.response.send_message(msg, ephemeral=True)
+
+        await interaction.response.send_message(
+            msg + "\n```text\n" + "\n".join(debug_lines) + "\n```",
+            ephemeral=True,
+        )
 
     # @app_commands.command()
     # async def skip(): ...
