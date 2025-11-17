@@ -409,6 +409,25 @@ class MusicControlView(ui.View):
         if gid:
             self._set_shuffle_visual(self.player.is_shuffle(gid))
 
+    def _set_queue_disabled(self, disabled: bool):
+        b = self._btn("queue")
+        if b:
+            b.disabled = disabled
+
+    def _has_any_tracks(self, guild_id: str) -> bool:
+        if self.player.play_queue:
+            return True
+        try:
+            return bool(self.player.playlist_manager.get_songs(guild_id))
+        except Exception:
+            return False
+
+    def sync_with_voice(self, vc):
+        self._set_pause_visual(paused=bool(vc and vc.is_paused()))
+        self._set_play_disabled(bool(vc and vc.is_playing()))
+        gid = str(vc.guild.id) if vc and getattr(vc, "guild", None) else None
+        self._set_queue_disabled(not self._has_any_tracks(gid) if gid else True)
+
     # ▶️ 播放（公開訊息：直接 edit_message）
     @ui.button(label="▶️ 播放", style=ButtonStyle.green, custom_id="play")
     async def play(self, interaction: Interaction, button: ui.Button):
@@ -608,6 +627,55 @@ class MusicControlView(ui.View):
             f"🔀 隨機播放已{'開啟' if new_state else '關閉'}。", ephemeral=True
         )
 
+    @ui.button(label="📜 目前歌單", style=ButtonStyle.gray, custom_id="queue")
+    async def queue(self, interaction: Interaction, button: ui.Button):
+        guild_id = str(interaction.guild.id)
+
+        # 取 DB 歌單（示範：顯示前 20 首）
+        try:
+            db_songs = self.player.playlist_manager.get_songs(guild_id)
+        except Exception as e:
+            await interaction.response.send_message(
+                f"⚠️ 讀取歌單失敗：{e}", ephemeral=True
+            )
+            return
+
+        if not db_songs and not self.player.play_queue:
+            self._set_queue_disabled(True)
+            if not interaction.response.is_done():
+                await interaction.response.edit_message(view=self)
+            else:
+                try:
+                    await interaction.edit_original_response(view=self)
+                except Exception:
+                    pass
+            await interaction.followup.send("📭 目前歌單是空的。", ephemeral=True)
+            return
+
+        # 顯示預覽（最多 20 首），並提示可用 /show_playlist 看完整
+        titles = [t for (t, _u) in db_songs]
+        preview = titles[:20]
+        lines = [f"{i+1}. {t}" for i, t in enumerate(preview)]
+        footer = ""
+        if len(titles) > 20:
+            footer = f"\n…（共 {len(titles)} 首，請用 `/show_playlist` 檢視完整）"
+
+        text = "📜 **目前歌單（前 20 首）**\n" + "\n".join(lines) + footer
+
+        if not interaction.response.is_done():
+            await interaction.response.send_message(text, ephemeral=True)
+        else:
+            await interaction.followup.send(text, ephemeral=True)
+
+        # 點完順手同步一次按鈕狀態
+        vc = interaction.guild.voice_client
+        if vc:
+            self.sync_with_voice(vc)
+            try:
+                await interaction.edit_original_response(view=self)
+            except Exception:
+                pass
+
 
 class Music(Cog_Extension):
     def __init__(self, bot):
@@ -689,6 +757,32 @@ class Music(Cog_Extension):
         log.info(
             f"[panel] 建立新控制面板 guild={guild_id} ch={sent.channel.id} msg={sent.id}"
         )
+
+    def _get_playlist_titles(self, guild_id: str) -> list[str]:
+        """從 DB 讀出本伺服器歌單（只回傳 title list）"""
+        try:
+            songs = self.playlist_manager.get_songs(guild_id)
+            return [title for (title, _url) in songs]
+        except Exception as e:
+            log = __import__("logging").getLogger("music")
+            log.warning(f"[get_playlist_titles] error: {e}")
+            return []
+
+    def _build_playlist_text(
+        self,
+        titles: list[str],
+        header: str = "📀 本伺服器歌單內容：",
+        start: int = 0,
+        limit: int | None = None,
+    ) -> str:
+        """把 titles 轉成可顯示文字；可指定起始索引與顯示上限"""
+        if limit is not None:
+            subset = titles[start : start + limit]
+        else:
+            subset = titles
+        lines = [f"{i+1+start}. {t}" for i, t in enumerate(subset)]
+        body = "\n".join(lines) if lines else "（無歌曲）"
+        return f"{header}\n{body}"
 
     @app_commands.command(name="leave", description="讓機器人離開語音頻道")
     async def leave(self, interaction: discord.Interaction):
@@ -866,13 +960,29 @@ class Music(Cog_Extension):
         guild_id = str(interaction.guild.id)
         self.playlist_manager.ensure_playlist_exists(guild_id)
 
-        songs = self.playlist_manager.get_songs(guild_id)
-        if not songs:
+        titles = self._get_playlist_titles(guild_id)
+        if not titles:
             await interaction.response.send_message("⚠️ 本伺服器的歌單是空的。")
             return
 
-        display = "\n".join(f"{i+1}. {title}" for i, (title, _) in enumerate(songs))
-        await interaction.response.send_message(f"📀 本伺服器歌單內容：\n{display}")
+        # 先嘗試分段傳送（避免 2000 字上限）
+        CHUNK_CHAR = 1900
+        header = "📀 本伺服器歌單內容："
+        idx = 0
+        if not interaction.response.is_done():
+            await interaction.response.defer(thinking=False)
+
+        buf = header + "\n"
+        while idx < len(titles):
+            line = f"{idx+1}. {titles[idx]}\n"
+            if len(buf) + len(line) > CHUNK_CHAR:
+                await interaction.followup.send(buf.rstrip())
+                buf = ""
+            buf += line
+            idx += 1
+
+        if buf.strip():
+            await interaction.followup.send(buf.rstrip())
 
     @app_commands.command(name="clear_playlist", description="清除本伺服器所有歌")
     async def clear_playlist(self, interaction: discord.Interaction):
