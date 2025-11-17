@@ -631,50 +631,28 @@ class MusicControlView(ui.View):
     async def queue(self, interaction: Interaction, button: ui.Button):
         guild_id = str(interaction.guild.id)
 
-        # 取 DB 歌單（示範：顯示前 20 首）
+        # 若擔心查 DB 花超過 3 秒，先 defer；注意是 ephemeral，只給點按的人看
+        await interaction.response.defer(ephemeral=True, thinking=False)
+
         try:
-            db_songs = self.player.playlist_manager.get_songs(guild_id)
-        except Exception as e:
-            await interaction.response.send_message(
-                f"⚠️ 讀取歌單失敗：{e}", ephemeral=True
+            songs = self.player.playlist_manager.get_songs(guild_id)
+            if not songs:
+                await interaction.followup.send("📭 目前歌單是空的。", ephemeral=True)
+                return
+
+            titles = [t for (t, _u) in songs]
+            N = min(20, len(titles))  # 只顯示前 N 首，避免太長
+            text = "📜 **目前歌單（前 20 首）**\n" + "\n".join(
+                f"{i+1}. {t}" for i, t in enumerate(titles[:N])
             )
-            return
+            if len(titles) > N:
+                text += f"\n…（共 {len(titles)} 首，完整請用 `/show_playlist` ）"
 
-        if not db_songs and not self.player.play_queue:
-            self._set_queue_disabled(True)
-            if not interaction.response.is_done():
-                await interaction.response.edit_message(view=self)
-            else:
-                try:
-                    await interaction.edit_original_response(view=self)
-                except Exception:
-                    pass
-            await interaction.followup.send("📭 目前歌單是空的。", ephemeral=True)
-            return
-
-        # 顯示預覽（最多 20 首），並提示可用 /show_playlist 看完整
-        titles = [t for (t, _u) in db_songs]
-        preview = titles[:20]
-        lines = [f"{i+1}. {t}" for i, t in enumerate(preview)]
-        footer = ""
-        if len(titles) > 20:
-            footer = f"\n…（共 {len(titles)} 首，請用 `/show_playlist` 檢視完整）"
-
-        text = "📜 **目前歌單（前 20 首）**\n" + "\n".join(lines) + footer
-
-        if not interaction.response.is_done():
-            await interaction.response.send_message(text, ephemeral=True)
-        else:
+            # 只送出文字訊息；不要動到面板訊息、不要帶 view
             await interaction.followup.send(text, ephemeral=True)
 
-        # 點完順手同步一次按鈕狀態
-        vc = interaction.guild.voice_client
-        if vc:
-            self.sync_with_voice(vc)
-            try:
-                await interaction.edit_original_response(view=self)
-            except Exception:
-                pass
+        except Exception as e:
+            await interaction.followup.send(f"⚠️ 讀取歌單失敗：{e}", ephemeral=True)
 
 
 class Music(Cog_Extension):
