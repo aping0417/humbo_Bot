@@ -1,5 +1,4 @@
 import discord
-import discord.context_managers
 from discord.ext import commands
 from discord import app_commands
 import yt_dlp as youtube_dl
@@ -68,6 +67,56 @@ def extract_spotify_track_info(url):
         return []
 
 
+async def add_input_to_guild_playlist(
+    player, playlist_manager, guild_id: str, raw: str
+):
+    """
+    依 raw（Spotify/YouTube/關鍵字）解析並加入歌單。
+    回傳 (added_count, added_titles)
+    """
+    added = []
+
+    # 確保歌單存在
+    playlist_manager.ensure_playlist_exists(guild_id)
+
+    try:
+        # ▓▓ Spotify：track / playlist
+        if "open.spotify.com" in raw:
+            keywords = extract_spotify_track_info(raw)  # ["name artist", ...]
+            for kw in keywords:
+                search_url = f"ytsearch:{kw}"
+                audio_url, title = player.download_audio(search_url)
+                playlist_manager.add_song(guild_id, title, audio_url)
+                added.append(title)
+            return len(added), added
+
+        # ▓▓ YouTube 播放清單
+        if "list=" in raw or "playlist?" in raw:
+            with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(raw, download=False)
+                entries = info.get("entries", []) or []
+                for video in entries:
+                    vid = video.get("id")
+                    title = video.get("title") or "未知標題"
+                    if not vid:
+                        continue
+                    video_url = f"https://www.youtube.com/watch?v={vid}"
+                    audio_url, title2 = player.download_audio(video_url)
+                    playlist_manager.add_song(guild_id, title2, audio_url)
+                    added.append(title2)
+            return len(added), added
+
+        # ▓▓ 一般：YouTube 單首網址 or 關鍵字（自動 ytsearch）
+        audio_url, title = player.download_audio(raw)  # 會自動補 ytsearch:
+        playlist_manager.add_song(guild_id, title, audio_url)
+        added.append(title)
+        return len(added), added
+
+    except Exception as e:
+        print(f"[add_input_to_guild_playlist] error: {e}")
+        return 0, added
+
+
 # 設定 -reconnect 1 （斷線自動重連） -reconnect_streamed 1（處理Streaming Media會自動重連）
 # -reconnect_delay_max 5(斷線5秒內會自動重連) "options": "-vn" （只處理聲音）
 
@@ -78,10 +127,17 @@ class MusicPlayer:
         self.playlist_manager = playlist_manager
         self.current_playlist_id = None  # ⬅️ 播放中的 playlist（由 guild_id 給）
         self._panel_updater = None  # ← 新增：外部註冊
+        self.now_playing: dict | None = (
+            None  # {"title": str, "url": str | None, "playlist": str | None}
+        )
 
     def set_panel_updater(self, updater_coro):
         """註冊一個協程函式：async def updater_coro(guild_id, vc): ..."""
         self._panel_updater = updater_coro
+
+    def get_now_playing(self):
+        """回傳目前曲目資訊（或 None）"""
+        return self.now_playing
 
     async def _maybe_update_panel(self, voice_client):
         if not self._panel_updater:
@@ -109,6 +165,7 @@ class MusicPlayer:
             else:
                 log.info(f"guild={self.current_playlist_id} 歌單已空，停止播放")
                 self.current_playlist_id = None
+                self.now_playing = None  # ✅ 清空
                 # 播放結束 → 嘗試刷新面板（讓播放鍵恢復可按）
                 vc = voice_client
                 loop = vc.client.loop
@@ -116,9 +173,12 @@ class MusicPlayer:
                 return
         else:
             log.info("沒有可播放的歌曲")
+            self.now_playing = None  # ✅ 清空
             return
 
         try:
+            # ✅ 設定現在播放
+            self.now_playing = {"title": title, "url": url, "playlist": playlist_name}
             source = discord.FFmpegPCMAudio(url, **ffmpeg_options)
             voice_client.play(
                 source,
@@ -208,6 +268,56 @@ class MusicPlayer:
             return False
 
 
+class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
+    def __init__(self, player, playlist_manager):
+        super().__init__(timeout=None)
+        self.player = player
+        self.playlist_manager = playlist_manager
+
+        self.input = ui.TextInput(
+            label="貼上 Spotify/YouTube 網址，或輸入歌名 歌手",
+            placeholder="例：YOASOBI アイドル / https://open.spotify.com/track/... / https://www.youtube.com/watch?v=...",
+            style=discord.TextStyle.paragraph,
+            required=True,
+            max_length=400,
+        )
+        self.add_item(self.input)
+
+    async def on_submit(self, interaction: Interaction):
+        guild_id = str(interaction.guild.id)
+        raw = self.input.value.strip()
+
+        # 寫入 DB
+        count, titles = await add_input_to_guild_playlist(
+            self.player, self.playlist_manager, guild_id, raw
+        )
+
+        # 若目前沒有在播放 → 嘗試開播
+        vc = interaction.guild.voice_client
+        if (
+            vc
+            and vc.is_connected()
+            and not vc.is_playing()
+            and (
+                self.player.play_queue
+                or self.player.playlist_manager.get_songs(guild_id)
+            )
+        ):
+            self.player.current_playlist_id = guild_id
+            self.player.play_next(vc)
+
+        # 回覆
+        if count == 0:
+            await interaction.response.send_message(
+                "❌ 沒有成功加入任何歌曲。", ephemeral=True
+            )
+        else:
+            joined = "、".join(titles[:3]) + ("…" if len(titles) > 3 else "")
+            await interaction.response.send_message(
+                f"✅ 已加入 {count} 首歌到本伺服器歌單：{joined}", ephemeral=True
+            )
+
+
 class MusicControlView(ui.View):
     def __init__(self, player):
         super().__init__(timeout=None)
@@ -243,6 +353,23 @@ class MusicControlView(ui.View):
         self._set_pause_visual(paused=bool(vc and vc.is_paused()))
         # 若正在播放就把播放鍵禁用，沒在播則啟用
         self._set_play_disabled(bool(vc and vc.is_playing()))
+
+    def _set_now_disabled(self, disabled: bool):
+        b = self._btn("now")
+        if b:
+            b.disabled = disabled
+
+    def sync_with_voice(self, vc):
+        self._set_pause_visual(paused=bool(vc and vc.is_paused()))
+        self._set_play_disabled(bool(vc and vc.is_playing()))
+        # ✅ 有在播或暫停而且有 now_playing 才可按
+        np = (
+            self.player.get_now_playing()
+            if hasattr(self.player, "get_now_playing")
+            else self.player.now_playing
+        )
+        playing_or_paused = bool(vc and (vc.is_playing() or vc.is_paused()))
+        self._set_now_disabled(not (playing_or_paused and np))
 
     # ▶️ 播放（公開訊息：直接 edit_message）
     @ui.button(label="▶️ 播放", style=ButtonStyle.green, custom_id="play")
@@ -351,6 +478,70 @@ class MusicControlView(ui.View):
                 await interaction.response.send_message(f"⚠️ 停止失敗：{e}")
             else:
                 await interaction.followup.send(f"⚠️ 停止失敗：{e}")
+
+    @ui.button(label="➕ 載入歌曲", style=ButtonStyle.gray, custom_id="add")
+    async def add(self, interaction: Interaction, button: ui.Button):
+        # 開 Modal
+        modal = AddSongModal(self.player, self.player.playlist_manager)
+        await interaction.response.send_modal(modal)
+
+    @ui.button(label="🎧 現正播放", style=ButtonStyle.gray, custom_id="now")
+    async def now(self, interaction: Interaction, button: ui.Button):
+        try:
+            vc = interaction.guild.voice_client
+            np = (
+                self.player.get_now_playing()
+                if hasattr(self.player, "get_now_playing")
+                else self.player.now_playing
+            )
+
+            if not vc or not vc.is_connected() or not np:
+                # 沒在播：禁用按鈕並回覆
+                self._set_now_disabled(True)
+                # 這裡用 edit_message 讓全體看到按鈕狀態同步
+                if not interaction.response.is_done():
+                    await interaction.response.edit_message(view=self)
+                    await interaction.followup.send(
+                        "📭 目前沒有正在播放的音樂。", ephemeral=True
+                    )
+                else:
+                    await interaction.edit_original_response(view=self)
+                    await interaction.followup.send(
+                        "📭 目前沒有正在播放的音樂。", ephemeral=True
+                    )
+                return
+
+            title = np.get("title", "未知標題")
+            playlist = np.get("playlist")
+            lines = [f"🎶 **{title}**"]
+            if playlist:
+                lines.append(f"📀 來源歌單：`{playlist}`")
+
+            # 用 ephemeral 告知點擊者；不影響公開面板
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "\n".join(lines), ephemeral=True
+                )
+            else:
+                await interaction.followup.send("\n".join(lines), ephemeral=True)
+
+            # 順便依目前 vc 狀態同步一次按鈕（避免長時間不同步）
+            self.sync_with_voice(vc)
+            try:
+                await interaction.edit_original_response(view=self)
+            except Exception:
+                # 如果原訊息不是此互動建立，可忽略
+                pass
+
+        except Exception as e:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    f"⚠️ 取得現正播放失敗：{e}", ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    f"⚠️ 取得現正播放失敗：{e}", ephemeral=True
+                )
 
 
 class Music(Cog_Extension):
@@ -605,104 +796,6 @@ class Music(Cog_Extension):
         )
         log.info(f"[play_playlist] guild={guild_id} by {interaction.user}")
 
-    @app_commands.command(name="play", description="撥放音樂")
-    async def play(self, interaction: discord.Interaction, url: str):
-        try:
-            if interaction.user.voice is None:
-                await interaction.response.send_message(
-                    "你沒有加入任何語音頻道", ephemeral=True
-                )
-                return
-            voice＿channel = interaction.user.voice.channel
-            voice＿client = (
-                interaction.guild.voice_client
-            )  # 機器人在的伺服器的聲音的內容
-
-            if voice_client is None:
-                # voice_client = await voice＿channel.connect()
-                await self.__join(interaction)
-                # print("before")
-                # await playmusic()
-                await interaction.response.send_message(f"網址{url}", silent=True)
-            elif voice＿client.channel != voice_channel:
-                # voice_client = discord.VoiceClient
-                await voice_client.move_to(self=voice_client, channel=voice_channel)
-                # await interaction.response.send_message("test123")
-            # else:
-            # return
-            # downloaded_format = info.get('format')
-            # print(f"下载的格式: {downloaded_format}")
-
-            # if not isinstance(voice_client, discord.VoiceClient):
-            # await interaction.response.send_message("語音客戶端不可用", silent=True)
-            # return
-
-            with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                songtitle = info.get("title", None)
-                # for i, fmt in enumerate(info.get('formats', [])):
-                # print(f"Format {i}: {fmt['format_id']} - {fmt['ext']} - {fmt['url']}")
-                # (這是詳細的格式也是剛開始看的)
-
-                url2 = info["formats"][6]["url"]  # 第6個格式
-
-                # downloaded_format = info.get('format')
-                # print(f"下载的格式: {downloaded_format}")
-                # (剛開始拿來看有啥格式能撥用的)
-
-            # await asyncio.gather(play＿next_song(), sendmsg())
-            print("哈嚕")
-
-            # voice_client.stop()
-            async def playmusic():
-                try:
-                    voice_client.play(
-                        discord.FFmpegPCMAudio(url2, **ffmpeg_options),
-                        after=lambda e: print(f"Player error: {e}") if e else None,
-                    )
-                except Exception as e:
-                    await interaction.response.send_message(
-                        f"音樂錯誤：{str(e)}", silent=True
-                    )
-
-            async def sendmsg():
-                try:
-                    # print("我自你前面")
-                    await interaction.response.send_message(
-                        f"{songtitle}\n網址:{url}", silent=True
-                    )
-                    # print("我自你後面")
-                except Exception as e:
-                    await interaction.response.send_message(
-                        f"訊息錯誤：{str(e)}", silent=True
-                    )
-
-            # print(type(voice_client.channel))
-            # print(type(voice_channel))
-
-            async def play_next_song(voice_client):
-                try:
-                    ffmpeg_options = {
-                        "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-                        "options": "-vn",
-                    }
-                    voice_client = discord.VoiceClient
-                    voice_client.play(
-                        discord.FFmpegPCMAudio(url2, **ffmpeg_options),
-                    )
-                except Exception as e:
-                    await interaction.response.send_message(
-                        f"錯誤:{str(e)}", silent=True
-                    )
-
-            # await asyncio.gather(playmusic(), sendmsg())
-            # return
-            if not voice_client.is_playing():
-                print("yes or no")
-                await asyncio.gather(playmusic(), sendmsg())
-        except Exception as e:
-            await interaction.response.send_message(f"發生錯誤：{str(e)}", silent=True)
-
     @app_commands.command(name="show_playlist", description="查看這個伺服器的歌單")
     async def show_playlist(self, interaction: discord.Interaction):
         guild_id = str(interaction.guild.id)
@@ -799,11 +892,30 @@ class Music(Cog_Extension):
         # 語音連線成功 → 建立或更新面板
         await self._send_or_replace_panel(interaction, vc)
 
-    # @app_commands.command()
-    # async def skip(): ...
+    @app_commands.command(name="nowplaying", description="顯示目前正在播放的歌曲")
+    async def nowplaying(self, interaction: discord.Interaction):
+        vc = interaction.guild.voice_client
+        np = (
+            self.player.get_now_playing()
+            if hasattr(self.player, "get_now_playing")
+            else self.player.now_playing
+        )
+
+        if not vc or not vc.is_connected() or not np:
+            await interaction.response.send_message(
+                "📭 目前沒有正在播放的音樂。", ephemeral=True
+            )
+            return
+
+        title = np.get("title", "未知標題")
+        playlist = np.get("playlist")
+        msg = f"🎶 **{title}**"
+        if playlist:
+            msg += f"\n📀 來源歌單：`{playlist}`"
+        await interaction.response.send_message(msg, ephemeral=True)
 
     # @app_commands.command()
-    # async def nowplay(): ...
+    # async def skip(): ...
 
     # @app_commands.command()
     # async def skipto(): ...
