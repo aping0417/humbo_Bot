@@ -394,6 +394,14 @@ class MusicControlView(ui.View):
             b.label = "⏸️ 暫停"
             b.style = ButtonStyle.blurple
 
+    def _set_shuffle_visual(self, enabled: bool):
+        b = self._btn("shuffle")
+        if not b:
+            return
+        b.label = "🔀 隨機：開" if enabled else "🔀 隨機：關"
+        # 你的專案同時用到 gray/grey，這裡沿用 grey；若庫只支援 gray，改成 ButtonStyle.gray 即可
+        b.style = ButtonStyle.green if enabled else ButtonStyle.grey
+
     # 播放鍵啟用/停用
     def _set_play_disabled(self, disabled: bool):
         b = self._btn("play")
@@ -402,19 +410,14 @@ class MusicControlView(ui.View):
 
     # 依據目前 voice 狀態同步整體 UI（/panel 初次建立會用）
     def sync_with_voice(self, vc):
+        # 暫停鍵樣式
         self._set_pause_visual(paused=bool(vc and vc.is_paused()))
-        # 若正在播放就把播放鍵禁用，沒在播則啟用
+        # 播放鍵可否按
         self._set_play_disabled(bool(vc and vc.is_playing()))
 
-    def _set_now_disabled(self, disabled: bool):
-        b = self._btn("now")
-        if b:
-            b.disabled = disabled
+        gid = str(getattr(getattr(vc, "guild", None), "id", "")) if vc else None
 
-    def sync_with_voice(self, vc):
-        self._set_pause_visual(paused=bool(vc and vc.is_paused()))
-        self._set_play_disabled(bool(vc and vc.is_playing()))
-        # ✅ 有在播或暫停而且有 now_playing 才可按
+        # now 按鈕（有在播/暫停且有 now_playing 才能按）
         np = (
             self.player.get_now_playing()
             if hasattr(self.player, "get_now_playing")
@@ -423,22 +426,17 @@ class MusicControlView(ui.View):
         playing_or_paused = bool(vc and (vc.is_playing() or vc.is_paused()))
         self._set_now_disabled(not (playing_or_paused and np))
 
-    def _set_shuffle_visual(self, enabled: bool):
-        b = self._btn("shuffle")
-        if not b:
-            return
-        b.label = "🔀 隨機：開" if enabled else "🔀 隨機：關"
-        b.style = ButtonStyle.green if enabled else ButtonStyle.grey
-
-    def sync_with_voice(self, vc):
-        # 既有：暫停/播放狀態
-        self._set_pause_visual(paused=bool(vc and vc.is_paused()))
-        self._set_play_disabled(bool(vc and vc.is_playing()))
-
-        # 新增：依 guild 狀態顯示隨機顏色/文字
-        gid = str(vc.guild.id) if vc else None
+        # shuffle 顯示
         if gid:
             self._set_shuffle_visual(self.player.is_shuffle(gid))
+
+        # 目前歌單按鈕（有歌才可按）
+        self._set_queue_disabled(not (gid and self._has_any_tracks(gid)))
+
+    def _set_now_disabled(self, disabled: bool):
+        b = self._btn("now")
+        if b:
+            b.disabled = disabled
 
     def _set_queue_disabled(self, disabled: bool):
         b = self._btn("queue")
@@ -452,12 +450,6 @@ class MusicControlView(ui.View):
             return bool(self.player.playlist_manager.get_songs(guild_id))
         except Exception:
             return False
-
-    def sync_with_voice(self, vc):
-        self._set_pause_visual(paused=bool(vc and vc.is_paused()))
-        self._set_play_disabled(bool(vc and vc.is_playing()))
-        gid = str(vc.guild.id) if vc and getattr(vc, "guild", None) else None
-        self._set_queue_disabled(not self._has_any_tracks(gid) if gid else True)
 
     # ▶️ 播放（公開訊息：直接 edit_message）
     @ui.button(label="▶️ 播放", style=ButtonStyle.green, custom_id="play")
