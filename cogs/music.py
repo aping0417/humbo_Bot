@@ -13,10 +13,14 @@ import os
 from dotenv import load_dotenv
 from discord import ui, Interaction, ButtonStyle
 import logging
+import itertools
+from itertools import islice
 
 load_dotenv()
 
 log = logging.getLogger("music")
+
+MAX_BULK_ADD = 50  # 一次最多載入 50 首
 
 ydl_opts = {
     "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",  # 格式
@@ -43,6 +47,20 @@ sp = Spotify(
     )
 )
 
+YDL_COMMON = {
+    "quiet": True,
+    "no_warnings": True,
+    "socket_timeout": 15,
+    "retries": 2,
+}
+YDL_FLAT_PL = {
+    **YDL_COMMON,
+    "extract_flat": "in_playlist",
+    "skip_download": True,
+    # 直接叫 yt_dlp 只抓前 50 首，降低網路與 JSON 處理量
+    "playlist_items": f"1-{MAX_BULK_ADD}",
+}
+
 
 def extract_spotify_track_info(url):
     try:
@@ -68,53 +86,55 @@ def extract_spotify_track_info(url):
 
 
 async def add_input_to_guild_playlist(
-    player, playlist_manager, guild_id: str, raw: str
+    player, playlist_manager, guild_id: str, raw: str, limit: int = MAX_BULK_ADD
 ):
-    """
-    依 raw（Spotify/YouTube/關鍵字）解析並加入歌單。
-    回傳 (added_count, added_titles)
-    """
-    added = []
-
-    # 確保歌單存在
+    added, truncated = [], False
     playlist_manager.ensure_playlist_exists(guild_id)
 
     try:
-        # ▓▓ Spotify：track / playlist
+        # Spotify：track / playlist → 關鍵字 → ytsearch
         if "open.spotify.com" in raw:
-            keywords = extract_spotify_track_info(raw)  # ["name artist", ...]
+            keywords = extract_spotify_track_info(raw) or []
+            if len(keywords) > limit:
+                keywords = keywords[:limit]
+                truncated = True
+
             for kw in keywords:
-                search_url = f"ytsearch:{kw}"
-                audio_url, title = player.download_audio(search_url)
+                audio_url, title = await player.download_audio_async(f"ytsearch:{kw}")
                 playlist_manager.add_song(guild_id, title, audio_url)
                 added.append(title)
-            return len(added), added
+            return len(added), added, truncated
 
-        # ▓▓ YouTube 播放清單
-        if "list=" in raw or "playlist?" in raw:
-            with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(raw, download=False)
-                entries = info.get("entries", []) or []
-                for video in entries:
-                    vid = video.get("id")
-                    title = video.get("title") or "未知標題"
-                    if not vid:
-                        continue
-                    video_url = f"https://www.youtube.com/watch?v={vid}"
-                    audio_url, title2 = player.download_audio(video_url)
-                    playlist_manager.add_song(guild_id, title2, audio_url)
-                    added.append(title2)
-            return len(added), added
+        # YouTube 播放清單 / Mix / Radio（含 list=RD..., start_radio=1）
+        if ("list=" in raw) or ("playlist?" in raw) or ("start_radio=1" in raw):
 
-        # ▓▓ 一般：YouTube 單首網址 or 關鍵字（自動 ytsearch）
-        audio_url, title = player.download_audio(raw)  # 會自動補 ytsearch:
+            def _flat_extract():
+                with youtube_dl.YoutubeDL(YDL_FLAT_PL) as ydl:
+                    return ydl.extract_info(raw, download=False)
+
+            info = await asyncio.to_thread(_flat_extract)
+            entries = (info or {}).get("entries", []) or []
+            truncated = len(entries) > limit
+
+            for video in itertools.islice(entries, limit):
+                vid = video.get("id")
+                if not vid:
+                    continue
+                video_url = f"https://www.youtube.com/watch?v={vid}"
+                audio_url, title2 = await player.download_audio_async(video_url)
+                playlist_manager.add_song(guild_id, title2, audio_url)
+                added.append(title2)
+            return len(added), added, truncated
+
+        # 一般：單首網址 / 關鍵字
+        audio_url, title = await player.download_audio_async(raw)
         playlist_manager.add_song(guild_id, title, audio_url)
         added.append(title)
-        return len(added), added
+        return len(added), added, truncated
 
     except Exception as e:
         print(f"[add_input_to_guild_playlist] error: {e}")
-        return 0, added
+        return 0, added, truncated
 
 
 # 設定 -reconnect 1 （斷線自動重連） -reconnect_streamed 1（處理Streaming Media會自動重連）
@@ -271,6 +291,9 @@ class MusicPlayer:
             log.warning(f"未找到理想音訊格式，改用預設 url：{title}")
             return info["url"], title
 
+    async def download_audio_async(self, url_or_keyword: str):
+        return await asyncio.to_thread(self.download_audio, url_or_keyword)
+
     def ensure_start_from_db(self, guild_id: str) -> bool:
         try:
             self.playlist_manager.ensure_playlist_exists(guild_id)
@@ -313,8 +336,8 @@ class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
 
         try:
             # 寫入 DB（這段可能會慢）
-            count, titles = await add_input_to_guild_playlist(
-                self.player, self.playlist_manager, guild_id, raw
+            count, titles, truncated = await add_input_to_guild_playlist(
+                self.player, self.playlist_manager, guild_id, raw, limit=MAX_BULK_ADD
             )
 
             # 若目前沒有在播放 → 嘗試開播
@@ -337,6 +360,9 @@ class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
                 )
             else:
                 joined = "、".join(titles[:3]) + ("…" if len(titles) > 3 else "")
+                extra = (
+                    f"（已達上限 {MAX_BULK_ADD} 首，後續未加入）" if truncated else ""
+                )
                 await interaction.followup.send(
                     f"✅ 已加入 {count} 首歌到本伺服器歌單：{joined}", ephemeral=True
                 )
@@ -837,43 +863,32 @@ class Music(Cog_Extension):
                 }
                 with youtube_dl.YoutubeDL(flat_opts) as ydl:
                     info = ydl.extract_info(url, download=False)
-                    entries = info.get("entries", [])
-                    if not entries:
-                        await interaction.followup.send(
-                            "⚠️ 播放清單中沒有可加入的歌曲。"
-                        )
-                        return
+                    entries = info.get("entries", []) or []
 
+                    truncated = len(entries) > MAX_BULK_ADD
                     added_count = 0
-                    for video in entries:
+
+                    for video in islice(entries, MAX_BULK_ADD):
                         video_id = video.get("id")
-                        title = video.get("title", "未知標題")
+                        if not video_id:
+                            continue
+                        video_url = f"https://www.youtube.com/watch?v={video_id}"
+                        audio_url, confirmed_title = self.player.download_audio(
+                            video_url
+                        )
+                        self.playlist_manager.add_song(
+                            guild_id, confirmed_title, audio_url
+                        )
+                        added_count += 1
 
-                        try:
-                            if not video_id:
-                                print("⚠️ 無法取得影片 ID，略過")
-                                continue
-
-                            video_url = f"https://www.youtube.com/watch?v={video_id}"
-                            audio_url, confirmed_title = self.player.download_audio(
-                                video_url
-                            )
-                            self.playlist_manager.add_song(
-                                guild_id, confirmed_title, audio_url
-                            )
-                            print(f"✅ 已加入：{confirmed_title}")
-                            added_count += 1
-
-                        except Exception as e:
-                            print(f"❌ 加入 `{title}` 時失敗：{str(e)}")
-
+                    extra = (
+                        f"（已達上限 {MAX_BULK_ADD} 首，後續未加入）"
+                        if truncated
+                        else ""
+                    )
                     await interaction.followup.send(
-                        f"✅ 已新增 {added_count} 首歌曲到歌單！"
+                        f"✅ 已新增 {added_count} 首歌曲到歌單！{extra}"
                     )
-                    log.info(
-                        f"[add_song] YT playlist 解析，共 {len(entries)} 筆，成功加入 {added_count} 首 (guild={guild_id})"
-                    )
-
                 return
 
             # ▓▓ 單首 YouTube 歌曲 ▓▓
