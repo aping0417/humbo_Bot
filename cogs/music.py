@@ -305,38 +305,43 @@ class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
         self.add_item(self.input)
 
     async def on_submit(self, interaction: Interaction):
+        # ✅ 立刻回覆互動（避免 3 秒逾時）
+        await interaction.response.defer(thinking=True, ephemeral=True)
+
         guild_id = str(interaction.guild.id)
         raw = self.input.value.strip()
 
-        # 寫入 DB
-        count, titles = await add_input_to_guild_playlist(
-            self.player, self.playlist_manager, guild_id, raw
-        )
+        try:
+            # 寫入 DB（這段可能會慢）
+            count, titles = await add_input_to_guild_playlist(
+                self.player, self.playlist_manager, guild_id, raw
+            )
 
-        # 若目前沒有在播放 → 嘗試開播
-        vc = interaction.guild.voice_client
-        if (
-            vc
-            and vc.is_connected()
-            and not vc.is_playing()
-            and (
-                self.player.play_queue
-                or self.player.playlist_manager.get_songs(guild_id)
-            )
-        ):
-            self.player.current_playlist_id = guild_id
-            self.player.play_next(vc)
+            # 若目前沒有在播放 → 嘗試開播
+            vc = interaction.guild.voice_client
+            if (
+                vc
+                and vc.is_connected()
+                and not vc.is_playing()
+                and (
+                    self.player.play_queue or self.playlist_manager.get_songs(guild_id)
+                )
+            ):
+                self.player.current_playlist_id = guild_id
+                self.player.play_next(vc)
 
-        # 回覆
-        if count == 0:
-            await interaction.response.send_message(
-                "❌ 沒有成功加入任何歌曲。", ephemeral=True
-            )
-        else:
-            joined = "、".join(titles[:3]) + ("…" if len(titles) > 3 else "")
-            await interaction.response.send_message(
-                f"✅ 已加入 {count} 首歌到本伺服器歌單：{joined}", ephemeral=True
-            )
+            # ✅ 用 followup 回覆結果
+            if count == 0:
+                await interaction.followup.send(
+                    "❌ 沒有成功加入任何歌曲。", ephemeral=True
+                )
+            else:
+                joined = "、".join(titles[:3]) + ("…" if len(titles) > 3 else "")
+                await interaction.followup.send(
+                    f"✅ 已加入 {count} 首歌到本伺服器歌單：{joined}", ephemeral=True
+                )
+        except Exception as e:
+            await interaction.followup.send(f"⚠️ 載入失敗：{e}", ephemeral=True)
 
 
 class MusicControlView(ui.View):
@@ -567,40 +572,24 @@ class MusicControlView(ui.View):
                 else self.player.now_playing
             )
 
-            if not vc or not vc.is_connected() or not np:
-                # 沒在播：禁用按鈕並回覆
-                self._set_now_disabled(True)
-                # 這裡用 edit_message 讓全體看到按鈕狀態同步
-                if not interaction.response.is_done():
-                    await interaction.response.edit_message(view=self)
-                    await interaction.followup.send(
-                        "📭 目前沒有正在播放的音樂。", ephemeral=True
-                    )
-                else:
-                    await interaction.edit_original_response(view=self)
-                    await interaction.followup.send(
-                        "📭 目前沒有正在播放的音樂。", ephemeral=True
-                    )
+            if (
+                not vc
+                or not vc.is_connected()
+                or not (vc.is_playing() or vc.is_paused())
+                or not np
+            ):
+                await interaction.response.send_message(
+                    "📭 目前沒有正在播放的音樂。", ephemeral=True
+                )
                 return
 
             title = np.get("title", "未知標題")
             lines = [f"🎶 **{title}**"]
 
-            # 用 ephemeral 告知點擊者；不影響公開面板
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "\n".join(lines), ephemeral=True
-                )
-            else:
-                await interaction.followup.send("\n".join(lines), ephemeral=True)
-
-            # 順便依目前 vc 狀態同步一次按鈕（避免長時間不同步）
-            self.sync_with_voice(vc)
-            try:
-                await interaction.edit_original_response(view=self)
-            except Exception:
-                # 如果原訊息不是此互動建立，可忽略
-                pass
+            # 只回純文字，不編輯面板
+            await interaction.response.send_message(
+                "\n".join(lines), ephemeral=True, suppress_embeds=True
+            )
 
         except Exception as e:
             if not interaction.response.is_done():
