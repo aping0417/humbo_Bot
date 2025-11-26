@@ -8,8 +8,6 @@ import sqlite3
 
 DATABASE_PATH = "music_bot.db"
 
-# class DatabaseManager:
-
 
 class Playlist(Cog_Extension):
     def __init__(self, bot, db_path=DATABASE_PATH):
@@ -21,87 +19,180 @@ class Playlist(Cog_Extension):
         """初始化 SQLite3 資料表"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute('''CREATE TABLE IF NOT EXISTS playlists (
+        cursor.execute(
+            """CREATE TABLE IF NOT EXISTS playlists (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            name TEXT NOT NULL,
-                            owner_id TEXT NOT NULL)''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS songs (
+                            guild_id TEXT NOT NULL UNIQUE)"""
+        )
+        cursor.execute(
+            """CREATE TABLE IF NOT EXISTS songs (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             playlist_id INTEGER NOT NULL,
                             title TEXT NOT NULL,
                             url TEXT NOT NULL,
-                            FOREIGN KEY (playlist_id) REFERENCES playlists(id))''')
+                            FOREIGN KEY (playlist_id) REFERENCES playlists(id))"""
+        )
         conn.commit()
         conn.close()
 
-    def add_playlist(self, name, owner_id):
-        """新增歌單"""
+    def ensure_playlist_exists(self, guild_id):
+        """確保此 guild_id 對應的歌單存在"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO playlists (name, owner_id) VALUES (?, ?)", (name, owner_id))
-        conn.commit()
-        conn.close()
-
-    def add_song(self, playlist_name, title, url):
-        """新增歌曲到指定歌單"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id FROM playlists WHERE name = ?", (playlist_name,))
-        playlist = cursor.fetchone()
-        if playlist:
-            cursor.execute(
-                "INSERT INTO songs (playlist_id, title, url) VALUES (?, ?, ?)", (playlist[0], title, url))
+        cursor.execute("SELECT id FROM playlists WHERE guild_id = ?", (guild_id,))
+        result = cursor.fetchone()
+        if result:
+            playlist_id = result[0]
+        else:
+            cursor.execute("INSERT INTO playlists (guild_id) VALUES (?)", (guild_id,))
             conn.commit()
+            playlist_id = cursor.lastrowid
         conn.close()
+        return playlist_id
 
-    def get_songs(self, playlist_name):
-        """獲取歌單內的歌曲"""
+    def add_song(self, guild_id, title, url):
+        """新增歌曲到伺服器專屬歌單"""
+        playlist_id = self.ensure_playlist_exists(guild_id)
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT songs.title, songs.url FROM songs JOIN playlists ON songs.playlist_id = playlists.id WHERE playlists.name = ?", (playlist_name,))
+            "INSERT INTO songs (playlist_id, title, url) VALUES (?, ?, ?)",
+            (playlist_id, title, url),
+        )
+        conn.commit()
+        conn.close()
+
+    def get_songs(self, guild_id):
+        """獲取伺服器對應歌單內的歌曲"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT songs.title, songs.url FROM songs
+            JOIN playlists ON songs.playlist_id = playlists.id
+            WHERE playlists.guild_id = ?
+        """,
+            (guild_id,),
+        )
         songs = cursor.fetchall()
         conn.close()
         return songs
 
-    def delete_song_by_url(self, playlist_name, url):
+    def delete_song_by_url(self, guild_id, url):
+        """根據 URL 刪除歌"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-
-        # 先查出 playlist 的 ID
-        cursor.execute(
-            "SELECT id FROM playlists WHERE name = ?", (playlist_name,))
+        cursor.execute("SELECT id FROM playlists WHERE guild_id = ?", (guild_id,))
         result = cursor.fetchone()
-
         if result:
             playlist_id = result[0]
-
-            # 刪除歌曲
             cursor.execute(
                 "DELETE FROM songs WHERE playlist_id = ? AND url = ?",
-                (playlist_id, url)
+                (playlist_id, url),
             )
             conn.commit()
-
-            # 檢查這個歌單是否還有歌
             cursor.execute(
-                "SELECT COUNT(*) FROM songs WHERE playlist_id = ?", (playlist_id,))
-            song_count = cursor.fetchone()[0]
+                "SELECT COUNT(*) FROM songs WHERE playlist_id = ?", (playlist_id,)
+            )
+            count = cursor.fetchone()[0]
+            if count == 0:
+                cursor.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,))
+                print(f"🗑 已刪除空的歌單 for guild `{guild_id}`")
+                conn.commit()
+        conn.close()
 
-            if song_count == 0:
-                # 如果歌單沒歌了，就刪除歌單
-                cursor.execute(
-                    "DELETE FROM playlists WHERE id = ?", (playlist_id,))
-                print(f"🗑 已刪除空的歌單 `{playlist_name}`")
+    def clear_playlist(self, guild_id):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM playlists WHERE guild_id = ?", (guild_id,))
+        result = cursor.fetchone()
+        if result:
+            playlist_id = result[0]
+            cursor.execute("DELETE FROM songs WHERE playlist_id = ?", (playlist_id,))
+            conn.commit()
+            print(f"🧹 已清空 `{guild_id}` 的歌單")
+        conn.close()
 
+    def pop_next_song(self, guild_id):
+        """取出並刪除這個 guild 的歌單中第一首歌"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT songs.id, songs.title, songs.url FROM songs
+            JOIN playlists ON songs.playlist_id = playlists.id
+            WHERE playlists.guild_id = ?
+            ORDER BY songs.id ASC LIMIT 1
+            """,
+            (guild_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return None
+
+        song_id, title, url = row
+
+        # 刪除這首
+        cursor.execute("DELETE FROM songs WHERE id = ?", (song_id,))
+        conn.commit()
+
+        # 如果清單已空，刪除 playlist（維持原本行為）
+        cursor.execute(
+            """
+            SELECT COUNT(*) FROM songs
+            JOIN playlists ON songs.playlist_id = playlists.id
+            WHERE playlists.guild_id = ?
+            """,
+            (guild_id,),
+        )
+        count = cursor.fetchone()[0]
+        if count == 0:
+            cursor.execute("DELETE FROM playlists WHERE guild_id = ?", (guild_id,))
+            print(f"🗑 自動刪除空歌單：{guild_id}")
             conn.commit()
 
         conn.close()
+        return title, url
 
+    def pop_random_song(self, guild_id):
+        """隨機取出並刪除這個 guild 的一首歌"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT songs.id, songs.title, songs.url FROM songs
+            JOIN playlists ON songs.playlist_id = playlists.id
+            WHERE playlists.guild_id = ?
+            ORDER BY RANDOM() LIMIT 1
+            """,
+            (guild_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return None
 
-# database = Playlist()  # 讓 `bot.py` 可以直接 import 使用
+        song_id, title, url = row
+        cursor.execute("DELETE FROM songs WHERE id = ?", (song_id,))
+        conn.commit()
+
+        # 若歌單空了就清掉 playlist（維持你原本的行為）
+        cursor.execute(
+            """
+            SELECT COUNT(*) FROM songs
+            JOIN playlists ON songs.playlist_id = playlists.id
+            WHERE playlists.guild_id = ?
+            """,
+            (guild_id,),
+        )
+        count = cursor.fetchone()[0]
+        if count == 0:
+            cursor.execute("DELETE FROM playlists WHERE guild_id = ?", (guild_id,))
+            conn.commit()
+
+        conn.close()
+        return title, url
 
 
 async def setup(bot):

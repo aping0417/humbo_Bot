@@ -5,24 +5,38 @@ from discord import app_commands
 import json
 import asyncio
 import os
+import logging
+
 
 with open("setting.json", mode="r", encoding="utf8") as jflie:
     jdata = json.load(jflie)
+
+# 設定全域 logger
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(),  # 顯示在終端機
+        logging.FileHandler("bot.log", encoding="utf-8"),  # 輸出到檔案
+    ],
+)
+
+logger = logging.getLogger("bot")
 
 bot = commands.Bot(intents=discord.Intents.all(), command_prefix="+")
 
 
 @bot.event
 async def on_ready():
-    slash = await bot.tree.sync()
     print("雪寶 啟動")
-    print(f"裝了{len(slash)}個斜線")
+    logger.info("雪寶 啟動")
+    # await bot.tree.sync()  # 🚀 手動同步 Slash 指令
+    # print("✅ Slash 指令已同步！")
+
     # 顯示已載入的 Cogs
     # print("🔍 已載入的 Cogs:")
     # for ext in bot.extensions:
     # print(f"  - {ext}")
-    await bot.tree.sync()  # 🚀 手動同步 Slash 指令
-    print("✅ Slash 指令已同步！")
 
 
 @bot.command()
@@ -71,9 +85,50 @@ async def hellow(interaction: discord.Interaction):
     await interaction.response.send_message("hellow")
 
 
+@bot.tree.command(name="slash", description="同步指令")
+async def slash(interaction: discord.Interaction):
+    slash = await bot.tree.sync()
+    print(f"裝了{len(slash)}個斜線")
+    # await bot.tree.sync()  # 🚀 手動同步 Slash 指令
+    print("✅ Slash 指令已同步！")
+    await interaction.response.send_message("✅ Slash 指令已同步！")
+
+
+@bot.command()
+async def slash(ctx):
+    slash = await bot.tree.sync()
+    print(f"裝了{len(slash)}個斜線")
+    # await bot.tree.sync()  # 🚀 手動同步 Slash 指令
+    print("✅ Slash 指令已同步！")
+    await ctx.send(f"✅ Slash 指令已同步！")
+
+
+@bot.tree.command(name="join_test", description="單純測試語音連線")
+async def join_test(interaction: discord.Interaction):
+    if interaction.user.voice is None:
+        await interaction.response.send_message("你不在語音頻道裡。", ephemeral=True)
+        return
+
+    channel = interaction.user.voice.channel
+
+    try:
+        await interaction.response.defer(ephemeral=True)
+        vc = interaction.guild.voice_client
+        if vc is None:
+            vc = await channel.connect(reconnect=False)
+        elif vc.channel != channel:
+            await vc.move_to(channel)
+
+        await interaction.followup.send("✅ join_test 成功加入語音。", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ join_test 失敗：{e}", ephemeral=True)
+
+
 async def setup():
     for filename in os.listdir("./cogs"):
-        if filename.endswith(".py") and filename != "__init__.py":  # ✅ 跳過 `__init__.py`
+        if (
+            filename.endswith(".py") and filename != "__init__.py"
+        ):  # ✅ 跳過 `__init__.py`
             # if filename.endswith(".py"):
             await bot.load_extension(f"cogs.{filename[:-3]}")
     await bot.start(jdata["TOKEN"])
