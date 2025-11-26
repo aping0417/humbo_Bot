@@ -31,14 +31,20 @@ class Say(Cog_Extension):
         await ctx.message.delete()
         await ctx.send(msg)
 
-    @app_commands.command(name="where", description="找人在哪")
+    @app_commands.command(
+        name="找人在哪", description="來找找您的朋友正在哪個語音頻道呢?"
+    )
+    @app_commands.describe(member="請點選一個你要找的人")
     async def where(self, interaction: discord.Interaction, member: discord.Member):
         await interaction.response.send_message(
             f"{member.mention}在{member.voice.channel.mention}", silent=True
         )
 
     # 1
-    @app_commands.command(name="say", description="匿名留言")
+    @app_commands.command(
+        name="匿名留言", description="ㄏㄏㄏ你們絕對不知道是我在講話!"
+    )
+    @app_commands.describe(msg="愛講甚麼就講甚麼!")
     async def say(self, interaction: discord.Interaction, msg: str):
         await interaction.response.send_message("訊息成功", ephemeral=True)
         await interaction.channel.send(msg)

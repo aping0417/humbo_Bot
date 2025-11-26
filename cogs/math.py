@@ -166,12 +166,25 @@ class RPSCog(commands.Cog):
         self.bot = bot
 
 
+# ------------------- VoteData -------------------
 class VoteData:
-    def __init__(self, title: str, author: discord.User):
+    def __init__(
+        self,
+        title: str,
+        author: discord.User,
+        is_anonymous=False,
+        allow_add_option=False,
+        allow_remove_option=False,
+        allow_view_voters=False,
+    ):
         self.title = title
         self.author = author
         self.options = []
-        self.votes = defaultdict(set)  # 初始化為一個空的集合
+        self.votes = defaultdict(set)
+        self.is_anonymous = is_anonymous
+        self.allow_add_option = allow_add_option
+        self.allow_remove_option = allow_remove_option
+        self.allow_view_voters = allow_view_voters
 
     def add_option(self, option: str):
         if option not in self.options:
@@ -180,7 +193,7 @@ class VoteData:
     def remove_option(self, option: str):
         if option in self.options:
             self.options.remove(option)
-            self.votes.pop(option, None)  # 刪除並回傳
+            self.votes.pop(option, None)
 
     def clear_options(self):
         self.options.clear()
@@ -188,99 +201,34 @@ class VoteData:
 
     def vote(self, user_id: int, option: str):
         for opt in self.options:
-            self.votes[opt].discard(user_id)  # 移除他之前的投票
+            self.votes[opt].discard(user_id)
         self.votes[option].add(user_id)
 
     def get_results(self):
         return {
-            option: len(users)
-            for option, users in self.votes.items()
-            if option in self.options  # 過濾非正式選項（如果有的話）
+            opt: len(users) for opt, users in self.votes.items() if opt in self.options
         }
 
     def get_voters(self):
         result = defaultdict(list)
-        for option, users in self.votes.items():  # 使用者集合
+        for opt, users in self.votes.items():
             for uid in users:
-                result[option].append(uid)
+                result[opt].append(uid)
         return result
 
 
-class VoteControlView(discord.ui.View):
-    def __init__(self, vote_data: VoteData):
-        super().__init__(timeout=None)
+# ------------------- 投票按鈕 -------------------
+class VoteButton(discord.ui.Button):
+    def __init__(self, option: str, vote_data: VoteData):
+        super().__init__(label=option, style=discord.ButtonStyle.primary)
+        self.option = option
         self.vote_data = vote_data
-        self.vote_view = VoteOptionView(vote_data)
 
-    @discord.ui.button(label="➕ 加選項", style=discord.ButtonStyle.primary)
-    async def add_option(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        await interaction.response.send_modal(
-            AddOptionModal(self.vote_data, self.vote_view)
-        )
-
-    @discord.ui.button(label="➖ 刪選項", style=discord.ButtonStyle.secondary)
-    async def remove_option(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        if not self.vote_data.options:
-            await interaction.response.send_message(
-                "目前沒有可刪除的選項。", ephemeral=True
-            )
-            return
+    async def callback(self, interaction: discord.Interaction):
+        self.vote_data.vote(interaction.user.id, self.option)
         await interaction.response.send_message(
-            view=RemoveOptionView(self.vote_data, self.vote_view), ephemeral=True
+            f"你已投票給：**{self.option}** ✅", ephemeral=True
         )
-
-    @discord.ui.button(label="🗑 刪除全部選項", style=discord.ButtonStyle.danger)
-    async def clear_all(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        if interaction.user != self.vote_data.author:
-            await interaction.response.send_message(
-                "❗ 只有指令發起者才能清除所有選項。", ephemeral=True
-            )
-            return
-        self.vote_data.clear_options()
-        await interaction.response.send_message("✅ 所有選項已清除！", ephemeral=True)
-        await interaction.message.channel.send(view=self.vote_view)
-
-    @discord.ui.button(label="📊 顯示投票結果", style=discord.ButtonStyle.success)
-    async def show_results(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        results = self.vote_data.get_results()
-        if not results:
-            await interaction.response.send_message(
-                "目前沒有投票紀錄。", ephemeral=True
-            )
-        else:
-            result_text = "\n".join(
-                f"{opt}: {count} 票" for opt, count in results.items()
-            )
-            await interaction.response.send_message(
-                f"📊 投票結果：\n{result_text}", ephemeral=True
-            )
-
-    @discord.ui.button(label="👀 查看投票者", style=discord.ButtonStyle.secondary)
-    async def show_voters(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        if interaction.user != self.vote_data.author:
-            await interaction.response.send_message(
-                "❗ 只有指令發起者能查看投票者。", ephemeral=True
-            )
-            return
-        voters = self.vote_data.get_voters()
-        if not voters:
-            await interaction.response.send_message("目前沒有人投票。", ephemeral=True)
-            return
-        lines = []
-        for opt, users in voters.items():
-            names = ", ".join(f"<@{uid}>" for uid in users)
-            lines.append(f"{opt}: {names}")
-        await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 
 class VoteOptionView(discord.ui.View):
@@ -295,19 +243,7 @@ class VoteOptionView(discord.ui.View):
             self.add_item(VoteButton(option, self.vote_data))
 
 
-class VoteButton(discord.ui.Button):
-    def __init__(self, option: str, vote_data: VoteData):
-        super().__init__(label=option, style=discord.ButtonStyle.primary)
-        self.option = option
-        self.vote_data = vote_data
-
-    async def callback(self, interaction: discord.Interaction):
-        self.vote_data.vote(interaction.user.id, self.option)
-        await interaction.response.send_message(
-            f"你已投票給：**{self.option}** ✅", ephemeral=True
-        )
-
-
+# ------------------- 新增/刪除選項 -------------------
 class AddOptionModal(discord.ui.Modal, title="新增投票選項"):
     option = discord.ui.TextInput(label="請輸入選項內容", max_length=100)
 
@@ -329,12 +265,6 @@ class AddOptionModal(discord.ui.Modal, title="新增投票選項"):
         await interaction.channel.send(view=self.vote_view)
 
 
-class RemoveOptionView(discord.ui.View):
-    def __init__(self, vote_data: VoteData, vote_view: VoteOptionView):
-        super().__init__(timeout=30)
-        self.add_item(RemoveOptionSelect(vote_data, vote_view))
-
-
 class RemoveOptionSelect(discord.ui.Select):
     def __init__(self, vote_data: VoteData, vote_view: VoteOptionView):
         self.vote_data = vote_data
@@ -354,9 +284,317 @@ class RemoveOptionSelect(discord.ui.Select):
         await interaction.channel.send(view=self.vote_view)
 
 
+class RemoveOptionView(discord.ui.View):
+    def __init__(self, vote_data: VoteData, vote_view: VoteOptionView):
+        super().__init__(timeout=30)
+        self.add_item(RemoveOptionSelect(vote_data, vote_view))
+
+
+# ------------------- 控制面板 -------------------
+class VoteControlView(discord.ui.View):
+    def __init__(self, vote_data: VoteData):
+        super().__init__(timeout=None)
+        self.vote_data = vote_data
+        self.vote_view = VoteOptionView(vote_data)
+
+    @discord.ui.button(label="➕ 加選項", style=discord.ButtonStyle.primary)
+    async def add_option(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if (
+            interaction.user != self.vote_data.author
+            and not self.vote_data.allow_add_option
+        ):
+            await interaction.response.send_message(
+                "❗ 你沒有權限新增選項。", ephemeral=True
+            )
+            return
+        await interaction.response.send_modal(
+            AddOptionModal(self.vote_data, self.vote_view)
+        )
+
+    @discord.ui.button(label="➖ 刪選項", style=discord.ButtonStyle.secondary)
+    async def remove_option(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if (
+            interaction.user != self.vote_data.author
+            and not self.vote_data.allow_remove_option
+        ):
+            await interaction.response.send_message(
+                "❗ 你沒有權限刪除選項。", ephemeral=True
+            )
+            return
+        if not self.vote_data.options:
+            await interaction.response.send_message(
+                "目前沒有可刪除的選項。", ephemeral=True
+            )
+            return
+        await interaction.response.send_message(
+            view=RemoveOptionView(self.vote_data, self.vote_view), ephemeral=True
+        )
+
+    @discord.ui.button(label="🗑 刪除全部選項", style=discord.ButtonStyle.danger)
+    async def clear_all(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if interaction.user != self.vote_data.author:
+            await interaction.response.send_message(
+                "❗ 只有指令發起者才能清除所有選項。", ephemeral=True
+            )
+            return
+        self.vote_data.clear_options()
+        await interaction.response.send_message("✅ 所有選項已清除！", ephemeral=True)
+        await interaction.channel.send(view=self.vote_view)
+
+    @discord.ui.button(label="📊 顯示投票結果", style=discord.ButtonStyle.success)
+    async def show_results(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        results = self.vote_data.get_results()
+        if not results:
+            await interaction.response.send_message(
+                "目前沒有投票紀錄。", ephemeral=True
+            )
+            return
+
+        # 組合結果文字
+        result_text = "\n".join(f"{opt}: {count} 票" for opt, count in results.items())
+
+        if interaction.user == self.vote_data.author:
+            # ----- 創建者：顯示最終結果，並結束投票 -----
+            await interaction.response.send_message(
+                f"📊 投票結果（已結束）：\n{result_text}", ephemeral=False, silent=True
+            )
+
+            # 停用所有控制按鈕
+            for child in self.children:
+                child.disabled = True
+            # 停用投票選項按鈕
+            for child in self.vote_view.children:
+                child.disabled = True
+
+            # 更新原本的控制面板訊息 → 所有按鈕都失效
+            try:
+                await interaction.message.edit(view=self)
+            except:
+                pass
+
+        else:
+            # ----- 參加者：只顯示目前結果，不結束投票 -----
+            await interaction.response.send_message(
+                f"📊 目前投票結果：\n{result_text}", ephemeral=True
+            )
+
+    @discord.ui.button(label="👀 查看投票者", style=discord.ButtonStyle.secondary)
+    async def show_voters(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if (
+            interaction.user != self.vote_data.author
+            and not self.vote_data.allow_view_voters
+        ):
+            await interaction.response.send_message(
+                "❗ 你沒有權限查看投票者名單。", ephemeral=True
+            )
+            return
+        if self.vote_data.is_anonymous:
+            await interaction.response.send_message(
+                "🙈 本次為匿名投票，無法查看投票者名單。", ephemeral=True
+            )
+            return
+        voters = self.vote_data.get_voters()
+        if not voters:
+            await interaction.response.send_message("目前沒有人投票。", ephemeral=True)
+            return
+        lines = ["👀 **查看投票者**"]
+        for opt, users in voters.items():
+            names = ", ".join(f"<@{uid}>" for uid in users)
+            lines.append(f"{opt}: {names}")
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+
+# ------------------- 開始/結束投票 -------------------
+class VoteStartEndView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🟢 開始投票", style=discord.ButtonStyle.success)
+    async def start_vote(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        await interaction.response.send_message(
+            "請設定投票參數：", view=VoteSettingsView(), ephemeral=True
+        )
+
+    @discord.ui.button(label="🔴 結束投票", style=discord.ButtonStyle.danger)
+    async def end_vote(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        await interaction.response.send_message("投票已結束！", ephemeral=True)
+
+
+# ------------------- 設定頁面 -------------------
+class VoteSettingsView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.is_anonymous = False
+        self.allow_add_option = False
+        self.allow_remove_option = False
+        self.allow_view_voters = False
+
+    @discord.ui.button(label="匿名投票 ❌", style=discord.ButtonStyle.secondary)
+    async def toggle_anonymous(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        self.is_anonymous = not self.is_anonymous
+        button.label = f"匿名投票 {'✅' if self.is_anonymous else '❌'}"
+        await interaction.response.edit_message(view=self)
+
+    @discord.ui.button(label="允許新增選項 ❌", style=discord.ButtonStyle.secondary)
+    async def toggle_add_option(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        self.allow_add_option = not self.allow_add_option
+        button.label = f"允許新增選項 {'✅' if self.allow_add_option else '❌'}"
+        await interaction.response.edit_message(view=self)
+
+    @discord.ui.button(label="允許刪除選項 ❌", style=discord.ButtonStyle.secondary)
+    async def toggle_remove_option(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        self.allow_remove_option = not self.allow_remove_option
+        button.label = f"允許刪除選項 {'✅' if self.allow_remove_option else '❌'}"
+        await interaction.response.edit_message(view=self)
+
+    @discord.ui.button(label="允許查看投票者 ❌", style=discord.ButtonStyle.secondary)
+    async def toggle_view_voters(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        self.allow_view_voters = not self.allow_view_voters
+        button.label = f"允許查看投票者 {'✅' if self.allow_view_voters else '❌'}"
+        await interaction.response.edit_message(view=self)
+
+    @discord.ui.button(label="✅ 完成設定", style=discord.ButtonStyle.success)
+    async def finish_settings(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        # 彈出投票主題輸入 Modal
+        await interaction.response.send_modal(
+            InputTitleModal(
+                self.is_anonymous,
+                self.allow_add_option,
+                self.allow_remove_option,
+                self.allow_view_voters,
+                interaction.user,
+            )
+        )
+
+
 class VoteCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+
+# ------------------- 投票主題輸入 -------------------
+class InputTitleModal(discord.ui.Modal, title="輸入投票主題"):
+    title_input = discord.ui.TextInput(label="投票主題", max_length=200)
+
+    def __init__(self, is_anonymous, allow_add, allow_remove, allow_view, author):
+        super().__init__()
+        self.is_anonymous = is_anonymous
+        self.allow_add = allow_add
+        self.allow_remove = allow_remove
+        self.allow_view = allow_view
+        self.author = author
+
+    async def on_submit(self, interaction: discord.Interaction):
+        vote_data = VoteData(
+            title=self.title_input.value,
+            author=self.author,
+            is_anonymous=self.is_anonymous,
+            allow_add_option=self.allow_add,
+            allow_remove_option=self.allow_remove,
+            allow_view_voters=self.allow_view,
+        )
+        vote_view = VoteOptionView(vote_data)
+        control_view = VoteControlView(vote_data)
+        await interaction.response.send_message(
+            f"📢 **{self.title_input.value}** 開始投票！\n請使用下方按鈕管理投票或投票。",
+            view=control_view,
+            silent=True,
+        )
+        await interaction.channel.send(view=vote_view)
+
+
+# ------------------- 領身分組 -------------------
+
+
+class RoleButton(discord.ui.Button):
+    def __init__(self, role: discord.Role):
+        # 初始化按鈕，預設顏色為藍色
+        super().__init__(label=role.name, style=discord.ButtonStyle.primary)
+        self.role = role
+
+    async def callback(self, interaction: discord.Interaction):
+        member = interaction.user
+        role = self.role
+
+        # 加或移除角色
+        if role in member.roles:
+            await member.remove_roles(role)
+            action_text = f"❌ 你已移除身分組 **{role.name}**"
+            self.style = discord.ButtonStyle.primary  # 移除後顏色改藍色
+        else:
+            await member.add_roles(role)
+            action_text = f"✅ 你已領取身分組 **{role.name}**"
+            self.style = discord.ButtonStyle.danger  # 加上後顏色改紅色
+
+        # 只更新目前按鈕所在的 View
+        await interaction.response.edit_message(content=action_text, view=self.view)
+
+
+class RoleButtonView(discord.ui.View):
+    def __init__(self, roles: list[discord.Role], member: discord.Member):
+        super().__init__(timeout=None)  # 永不超時
+        for role in roles:
+            button = RoleButton(role)
+            # 設定按鈕初始顏色
+            button.style = (
+                discord.ButtonStyle.danger
+                if role in member.roles
+                else discord.ButtonStyle.primary
+            )
+            self.add_item(button)
+
+
+# === 一鍵清除全部按鈕的互動介面 ===
+class ClearView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="🧹 清除全部訊息", style=discord.ButtonStyle.danger)
+    async def clear_all(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        # 檢查權限
+        if not interaction.user.guild_permissions.manage_messages:
+            await interaction.response.send_message(
+                "❌ 你沒有權限使用此功能。", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        deleted = 0
+
+        async for msg in interaction.channel.history(limit=1000):
+            try:
+                await msg.delete()
+                deleted += 1
+            except:
+                pass
+
+        await interaction.followup.send(f"🧹 已清除 {deleted} 則訊息。", ephemeral=True)
 
 
 class Math(Cog_Extension):
@@ -375,6 +613,9 @@ class Math(Cog_Extension):
             await ctx.send(f"不能一次打3個以上的數字操", silent=True)
 
     @app_commands.command(name="骰骰子", description="多面骰子")
+    @app_commands.describe(
+        numbers="一個數字表示(1~n)，兩個數字表示範圍(a~b)，不能打三個數字!!!"
+    )
     async def dice(self, interaction: discord.Interaction, numbers: str):
         x = numbers.split(" ")
         if len(x) == 1:
@@ -435,14 +676,112 @@ class Math(Cog_Extension):
         )
 
     @app_commands.command(name="投票", description="建立一個互動式投票")
-    @app_commands.describe(title="投票的主題")
-    async def vote(self, interaction: discord.Interaction, title: str):
-        vote_data = VoteData(title, interaction.user)
-        control_view = VoteControlView(vote_data)
+    async def vote_command(self, interaction: discord.Interaction):
+        # 呼叫我們剛剛寫的 VoteStartEndView
         await interaction.response.send_message(
-            f"📢 **{title}**\n請使用下方按鈕進行操作", view=control_view
+            "請點選開始或結束投票：", view=VoteStartEndView()
         )
-        await interaction.channel.send(view=control_view.vote_view)
+
+    @app_commands.command(name="領取身分組", description="顯示可領取的身分組按鈕")
+    async def role_command(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        member = interaction.user
+        roles = guild.roles
+
+        # 過濾可領取角色
+        claimable_roles = [r for r in roles if not r.managed and r.name != "@everyone"]
+        if not claimable_roles:
+            await interaction.response.send_message(
+                "這個伺服器目前沒有可領取的身分組。", ephemeral=True
+            )
+            return
+
+        # 建立嵌入訊息
+        embed = discord.Embed(
+            title=f"🎭 領取 {guild.name} 的身分組",
+            description="點擊下方按鈕即可領取或移除身分組：",
+            color=discord.Color.blue(),
+        )
+
+        # 創建按鈕 View
+        view = RoleButtonView(claimable_roles, member)
+
+        # 發送訊息
+        await interaction.response.send_message(embed=embed, view=view)
+
+    @app_commands.command(name="確認機器人權限")
+    async def check_perm(self, interaction: discord.Interaction):
+        bot_member = interaction.guild.me
+        await interaction.response.send_message(
+            f"🤖 機器人擁有的最高角色：{bot_member.top_role}\n"
+            f"🧱 可管理身分組權限：{bot_member.guild_permissions.manage_roles}",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="查詢身分組", description="顯示伺服器中每個身分組的成員")
+    async def roles_info(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        roles = [r for r in guild.roles if r.name != "@everyone" and not r.managed]
+
+        if not roles:
+            await interaction.response.send_message(
+                "這個伺服器沒有可查詢的身分組。", ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title=f"📜 {guild.name} 的身分組成員列表", color=discord.Color.gold()
+        )
+
+        for role in reversed(roles):  # 從高到低顯示
+            members = [m.mention for m in role.members]
+            if len(members) == 0:
+                member_text = "（無成員）"
+            elif len(members) > 10:
+                # 超過 10 人時只顯示部分，避免 embed 過長
+                member_text = "、".join(members[:10]) + f" ...（共 {len(members)} 人）"
+            else:
+                member_text = "、".join(members)
+
+            embed.add_field(
+                name=f"{role.name}（{len(role.members)} 人）",
+                value=member_text,
+                inline=False,
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="清除訊息", description="清除訊息（可輸入數字或按按鈕刪除全部）"
+    )
+    @app_commands.describe(amount="要清除的訊息數量（可不填）")
+    async def clear(self, interaction: discord.Interaction, amount: int = None):
+        # 權限檢查
+        if not interaction.user.guild_permissions.manage_messages:
+            await interaction.response.send_message(
+                "❌ 你沒有權限使用此指令。", ephemeral=True
+            )
+            return
+
+        # 使用者有輸入數字 -> 清除指定數量
+        if amount is not None:
+            if amount < 1 or amount > 1000:
+                await interaction.response.send_message(
+                    "⚠️ 請輸入 1~1000 之間的數字。", ephemeral=True
+                )
+                return
+
+            await interaction.response.defer(ephemeral=True)
+            deleted = await interaction.channel.purge(limit=amount)
+            await interaction.followup.send(
+                f"🧹 已清除 {len(deleted)} 則訊息。", ephemeral=True
+            )
+        else:
+            # 沒輸入數字 -> 顯示按鈕
+            view = ClearView()
+            await interaction.response.send_message(
+                "請選擇要執行的清除操作：", view=view, ephemeral=True
+            )
 
 
 async def setup(bot):
