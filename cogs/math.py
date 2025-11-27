@@ -193,6 +193,9 @@ class VoteData:
     def remove_option(self, option: str):
         if option in self.options:
             self.options.remove(option)
+        # 這裡要加：
+        if option in self.votes:
+            del self.votes[option]
 
     def clear_options(self):
         self.options.clear()
