@@ -326,6 +326,68 @@ class RemoveOptionView(discord.ui.View):
         self.add_item(RemoveOptionSelect(vote_data, vote_view))
 
 
+class ClearAllOptionsView(discord.ui.View):
+    def __init__(self, vote_data: VoteData, vote_view: VoteOptionView):
+        super().__init__(timeout=None)
+        self.vote_data = vote_data
+        self.vote_view = vote_view
+
+    @discord.ui.button(label="🗑 確認刪除全部選項", style=discord.ButtonStyle.danger)
+    async def confirm_clear(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if interaction.user != self.vote_data.author:
+            await interaction.response.send_message(
+                "❗ 只有投票創建者可以清除所有選項。", ephemeral=True
+            )
+            return
+
+        # 先 defer，確保 interaction 活著
+        await interaction.response.defer(ephemeral=True)
+
+        # 1️⃣ 清空資料
+        self.vote_data.clear_options()
+        self.vote_view.update_buttons()
+
+        # 2️⃣ 刪除舊訊息（安全處理 404）
+        if self.vote_view.options_message is not None:
+            try:
+                await self.vote_view.options_message.delete()
+            except discord.NotFound:
+                pass  # 訊息已刪掉，不用理會
+            except Exception as e:
+                await interaction.followup.send(
+                    f"❌ 刪除舊訊息失敗：{e}", ephemeral=True
+                )
+            finally:
+                self.vote_view.options_message = None
+
+        # 3️⃣ 發送新的空選項訊息到頻道（保留按鈕，但文字只提示）
+        content_text = "目前沒有任何投票選項，請使用控制台新增選項。"
+        try:
+            new_msg = await interaction.followup.send(content_text, ephemeral=True)
+
+            self.vote_view.options_message = new_msg
+        except Exception as e:
+            await interaction.followup.send(
+                f"❌ 發送新選項訊息失敗：{e}", ephemeral=True
+            )
+            return
+
+        # 4️⃣ 成功回覆給自己看（ephemeral）
+        try:
+            await interaction.followup.send("✅ 所有選項已清除！", ephemeral=True)
+        except Exception as e:
+            print(f"❌ 發送刪除完成訊息失敗：{e}")
+
+        # 5️⃣ 停用按鈕避免重複操作
+        button.disabled = True
+        try:
+            await interaction.message.edit(view=self)
+        except Exception as e:
+            print(f"❌ 編輯確認按鈕失效：{e}")
+
+
 # ------------------- 控制面板 -------------------
 class VoteControlView(discord.ui.View):
     def __init__(self, vote_data: VoteData):
@@ -376,12 +438,16 @@ class VoteControlView(discord.ui.View):
     ):
         if interaction.user != self.vote_data.author:
             await interaction.response.send_message(
-                "❗ 只有指令發起者才能清除所有選項。", ephemeral=True
+                "❗ 只有投票創建者可以清除所有選項。", ephemeral=True
             )
             return
-        self.vote_data.clear_options()
-        await interaction.response.send_message("✅ 所有選項已清除！", ephemeral=True)
-        await interaction.channel.send(view=self.vote_view)
+
+        # 彈出確認刪除全部選項的 View
+        await interaction.response.send_message(
+            "⚠️ 你確定要刪除所有選項嗎？此操作不可逆！",
+            view=ClearAllOptionsView(self.vote_data, self.vote_view),
+            ephemeral=True,
+        )
 
     @discord.ui.button(label="📊 顯示投票結果", style=discord.ButtonStyle.success)
     async def show_results(
