@@ -15,23 +15,28 @@ from discord import ui, Interaction, ButtonStyle
 import logging
 import itertools
 from itertools import islice
+from urllib.parse import urlparse, parse_qs
 
 load_dotenv()
 
 log = logging.getLogger("music")
 
-MAX_BULK_ADD = 50  # 一次最多載入 50 首
+# 針對不同型態的清單分流
+MAX_BULK_ADD = 1000  # 一次最多載入 50 首
+MAX_MIX_ITEMS = 100  # 🔒 Mix/Radio 只抓前 100
+MAX_PLAYLIST_ITEMS = 1000  # ✅ 一般清單限制1000首
+
 
 ydl_opts = {
     "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",  # 格式
-    "quiet": True,  # 抑制 youtube_dl 的大部分输出
+    "quiet": True,  # 限制 youtube_dl 的大部分输出
     "extractaudio": True,  # 只抓聲音
-    "outtmpl": "downloads/%(title)s.%(ext)s",  # 指定下载文件的输出模板
-    "noplaylist": False,  # 禁用播放清單（之後會開放）
+    "outtmpl": "downloads/%(title)s.%(ext)s",  # 指定下載文件的输出模板
+    "noplaylist": False,  # 可以放歌單網址
     # 'postprocessors': [{
     # 'key': 'FFmpegExtractAudio',
-    # 'preferredcodec': 'm4a',  # 转换为 mp3
-    # 'preferredquality': '192',  # 设置比特率为192k
+    # 'preferredcodec': 'm4a',  # 格式
+    # 'preferredquality': '192',  # 設定為192k
     # }], （這些是限制版本）
 }
 ffmpeg_options = {
@@ -39,7 +44,7 @@ ffmpeg_options = {
     "options": "-vn",
 }
 
-# 建立 Spotify 客戶端（建議用環境變數儲存）
+# Spotify 客戶端
 sp = Spotify(
     auth_manager=SpotifyClientCredentials(
         client_id=os.getenv("SPOTIPY_CLIENT_ID"),
@@ -52,13 +57,6 @@ YDL_COMMON = {
     "no_warnings": True,
     "socket_timeout": 15,
     "retries": 2,
-}
-YDL_FLAT_PL = {
-    **YDL_COMMON,
-    "extract_flat": "in_playlist",
-    "skip_download": True,
-    # 直接叫 yt_dlp 只抓前 50 首，降低網路與 JSON 處理量
-    "playlist_items": f"1-{MAX_BULK_ADD}",
 }
 
 
@@ -105,36 +103,97 @@ async def add_input_to_guild_playlist(
                 added.append(title)
             return len(added), added, truncated
 
-        # YouTube 播放清單 / Mix / Radio（含 list=RD..., start_radio=1）
+        # YouTube 播放清單 / Mix / Radio
         if ("list=" in raw) or ("playlist?" in raw) or ("start_radio=1" in raw):
+            # 判斷是不是 Mix/Radio
+            is_mix = is_youtube_mix_or_radio(raw)
+            # 一般清單 = 用 MAX_PLAYLIST_ITEMS（現在 1000）
+            # Mix/Radio = 用 MAX_MIX_ITEMS（現在 100）
+            per_limit = MAX_MIX_ITEMS if is_mix else MAX_PLAYLIST_ITEMS
 
             def _flat_extract():
-                with youtube_dl.YoutubeDL(YDL_FLAT_PL) as ydl:
+                with youtube_dl.YoutubeDL(build_flat_opts(per_limit)) as ydl:
                     return ydl.extract_info(raw, download=False)
 
             info = await asyncio.to_thread(_flat_extract)
-            entries = (info or {}).get("entries", []) or []
-            truncated = len(entries) > limit
 
-            for video in itertools.islice(entries, limit):
+            entries = (info or {}).get("entries", []) or []
+            total = (info or {}).get("playlist_count") or len(entries)
+
+            # 如果有設 per_limit，就看 playlist_count 有沒有大於 per_limit 來判斷有沒有被截斷
+            truncated = bool(per_limit and total > per_limit)
+
+            added = []
+            skipped = 0
+
+            # 有 per_limit 的話只處理前 per_limit 首；沒有就全處理
+            items = itertools.islice(entries, per_limit) if per_limit else entries
+
+            for video in items:
                 vid = video.get("id")
                 if not vid:
+                    skipped += 1
                     continue
+
+                # 過濾明確不可播的項目
+                t = (video.get("title") or "").lower()
+                if t in (
+                    "[private video]",
+                    "private video",
+                    "[deleted video]",
+                    "deleted video",
+                ):
+                    skipped += 1
+                    continue
+
                 video_url = f"https://www.youtube.com/watch?v={vid}"
-                audio_url, title2 = await player.download_audio_async(video_url)
+                try:
+                    audio_url, title2 = await player.download_audio_async(video_url)
+                except Exception as e:
+                    log.warning(f"[skip] {vid} 無法解析：{e}")
+                    skipped += 1
+                    continue
+
                 playlist_manager.add_song(guild_id, title2, audio_url)
                 added.append(title2)
-            return len(added), added, truncated
 
-        # 一般：單首網址 / 關鍵字
-        audio_url, title = await player.download_audio_async(raw)
-        playlist_manager.add_song(guild_id, title, audio_url)
-        added.append(title)
-        return len(added), added, truncated
+            log.info(
+                f"[playlist] 加入 {len(added)} 首，略過 {skipped} 首 "
+                f"(total={total}, limit={per_limit}, truncated={truncated}, mix={is_mix})"
+            )
+            return len(added), added, truncated
 
     except Exception as e:
         print(f"[add_input_to_guild_playlist] error: {e}")
         return 0, added, truncated
+
+
+def is_youtube_mix_or_radio(url: str) -> bool:
+    """
+    判斷是否為 YouTube 的 Mix/Radio 類型連結：
+    - URL 參數有 start_radio=1
+    - list 參數以 RD 或 RDMM 開頭（YouTube 的自動混合清單）
+    """
+    try:
+        q = parse_qs(urlparse(url).query)
+        if q.get("start_radio", ["0"])[0] == "1":
+            return True
+        list_id = (q.get("list") or [""])[0]
+        return list_id.startswith("RD")  # 含 RD、RDMM...
+    except Exception:
+        return False
+
+
+def build_flat_opts(limit: int | None):
+    """建立 yt_dlp 的 extract_flat 選項；limit=None 時不加 playlist_items（=不限制）。"""
+    opts = {
+        **YDL_COMMON,
+        "extract_flat": "in_playlist",
+        "skip_download": True,
+    }
+    if limit:
+        opts["playlist_items"] = f"1-{limit}"
+    return opts
 
 
 # 設定 -reconnect 1 （斷線自動重連） -reconnect_streamed 1（處理Streaming Media會自動重連）
@@ -145,12 +204,12 @@ class MusicPlayer:
     def __init__(self, playlist_manager):
         self.play_queue = []  # 每首歌格式：("url", "title", playlist_name)
         self.playlist_manager = playlist_manager
-        self.current_playlist_id = None  # ⬅️ 播放中的 playlist（由 guild_id 給）
-        self._panel_updater = None  # ← 新增：外部註冊
+        self.current_playlist_id = None  # 播放中的 playlist（由 guild_id 給）
+        self._panel_updater = None  # 新增：外部註冊
         self.now_playing: dict | None = (
             None  # {"title": str, "url": str | None, "playlist": str | None}
         )
-        self.shuffle_map: dict[str, bool] = {}  # guild_id -> 是否隨機
+        self.shuffle_map: dict[str, bool] = {}  # guild_id 隨機辨識
 
     def set_panel_updater(self, updater_coro):
         """註冊一個協程函式：async def updater_coro(guild_id, vc): ..."""
@@ -174,17 +233,17 @@ class MusicPlayer:
             log.warning("⚠️ Voice client 不存在或未連線")
             return
 
-        # 目前所在公會 ID
+        # 目前所在伺服器
         gid = str(voice_client.guild.id)
 
-        # 1) 先吃記憶體佇列
+        # 1) 先放記憶體佇列
         if self.play_queue:
             url, title, playlist_name = self.play_queue.pop(0)
             log.info(f"從佇列播放：{title} ({url}), 來源 playlist={playlist_name}")
 
         # 2) 再從資料庫取（依隨機/順序）
         elif self.current_playlist_id:
-            # 以 current_playlist_id 為主（你的流程就是用它指向本 guild 的歌單）
+            # 以 current_playlist_id 為主
             gid = self.current_playlist_id
             if self.is_shuffle(gid):
                 result = self.playlist_manager.pop_random_song(gid)
@@ -199,8 +258,8 @@ class MusicPlayer:
             else:
                 log.info(f"guild={gid} 歌單已空，停止播放")
                 self.current_playlist_id = None
-                self.now_playing = None  # ✅ 清空
-                # 播放結束 → 嘗試刷新面板（讓播放鍵恢復可按）
+                self.now_playing = None  # 歌單清空
+                # 播放結束 → 讓播放鍵恢復可按
                 vc = voice_client
                 loop = vc.client.loop
                 loop.create_task(self._maybe_update_panel(vc))
@@ -208,11 +267,11 @@ class MusicPlayer:
 
         else:
             log.info("沒有可播放的歌曲")
-            self.now_playing = None  # ✅ 清空
+            self.now_playing = None  # 歌單清空
             return
 
         try:
-            # ✅ 設定現在播放
+            # 設定現在播放
             self.now_playing = {"title": title, "url": url, "playlist": playlist_name}
             source = discord.FFmpegPCMAudio(url, **ffmpeg_options)
             voice_client.play(
@@ -221,7 +280,7 @@ class MusicPlayer:
             )
             log.info(f"▶️ 正在播放：{title}")
 
-            # 開播 → 播放鍵應禁用、暫停鍵顯示「暫停」
+            # 開播 → 播放按鈕更新
             vc = voice_client
             loop = vc.client.loop
             loop.create_task(self._maybe_update_panel(vc))
@@ -241,7 +300,7 @@ class MusicPlayer:
         if not title:
             real_url, title = self.download_audio(url)
         else:
-            real_url = url  # 如果已經有 title，代表是資料庫來的，保持原樣
+            real_url = url
 
         self.play_queue.append((real_url, title, playlist_name))
         log.info(f"加入佇列：{title} ({real_url}) playlist={playlist_name}")
@@ -263,7 +322,7 @@ class MusicPlayer:
             and "youtube.com" not in url_or_keyword
             and "youtu.be" not in url_or_keyword
         ):
-            # 自動加上 ytsearch 前綴
+            # 改用 ytsearch
             url_or_keyword = f"ytsearch:{url_or_keyword}"
             log.info(f"使用 ytsearch 搜尋：{original}")
 
@@ -847,20 +906,19 @@ class Music(Cog_Extension):
                 return
 
             # ▓▓ YouTube 播放清單 ▓▓
-            if "playlist?" in url or "list=" in url:
-                flat_opts = {
-                    **ydl_opts,
-                    "extract_flat": "in_playlist",
-                    "skip_download": True,
-                }
-                with youtube_dl.YoutubeDL(flat_opts) as ydl:
+            if "playlist?" in url or "list=" in url or "start_radio=1" in url:
+                is_mix = is_youtube_mix_or_radio(url)
+                per_limit = MAX_MIX_ITEMS if is_mix else MAX_PLAYLIST_ITEMS
+
+                with youtube_dl.YoutubeDL(build_flat_opts(per_limit)) as ydl:
                     info = ydl.extract_info(url, download=False)
                     entries = info.get("entries", []) or []
+                    total = info.get("playlist_count") or len(entries)
+                    truncated = bool(per_limit and total > per_limit)
 
-                    truncated = len(entries) > MAX_BULK_ADD
                     added_count = 0
-
-                    for video in islice(entries, MAX_BULK_ADD):
+                    it = itertools.islice(entries, per_limit) if per_limit else entries
+                    for video in it:
                         video_id = video.get("id")
                         if not video_id:
                             continue
@@ -873,14 +931,10 @@ class Music(Cog_Extension):
                         )
                         added_count += 1
 
-                    extra = (
-                        f"（已達上限 {MAX_BULK_ADD} 首，後續未加入）"
-                        if truncated
-                        else ""
-                    )
-                    await interaction.followup.send(
-                        f"✅ 已新增 {added_count} 首歌曲到歌單！{extra}"
-                    )
+                extra = f"（已達 Mix/Radio 上限 {per_limit} 首）" if truncated else ""
+                await interaction.followup.send(
+                    f"✅ 已新增 {added_count} 首歌曲到歌單！{extra}"
+                )
                 return
 
             # ▓▓ 單首 YouTube 歌曲 ▓▓
