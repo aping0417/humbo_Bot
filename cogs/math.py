@@ -261,31 +261,26 @@ class AddOptionModal(discord.ui.Modal, title="新增投票選項"):
             await interaction.response.send_message("❗ 選項不得為空！", ephemeral=True)
             return
 
-        # 新增選項到資料結構
+        # 更新資料
         self.vote_data.add_option(new_option)
-
-        # 更新按鈕列表
         self.vote_view.update_buttons()
 
-        # ===========================
-        # 刪除舊的選項訊息
-        # ===========================
-        if self.vote_view.options_message is not None:
+        # defer 一次 → 不要再用 send_message
+        await interaction.response.defer(ephemeral=True)
+
+        # 刪掉舊的選項訊息
+        if self.vote_view.options_message:
             try:
                 await self.vote_view.options_message.delete()
-            except:
-                pass  # 若已被刪除則忽略
+            except discord.NotFound:
+                pass
 
-        # ===========================
-        # 傳送新的選項訊息
-        # ===========================
-        new_msg = await interaction.channel.send(view=self.vote_view)
-
-        # 記錄新訊息
+        # 發送新的選項訊息
+        new_msg = await interaction.followup.send(view=self.vote_view)
         self.vote_view.options_message = new_msg
 
-        # 回覆 modal（ephemeral）
-        await interaction.response.send_message(
+        # 回報使用者（ephemeral）
+        await interaction.followup.send(
             f"✅ 新增選項：**{new_option}**", ephemeral=True
         )
 
@@ -301,26 +296,27 @@ class RemoveOptionSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         selected = self.values[0]
+
+        # defer (保持 interaction 存活)
+        await interaction.response.defer(ephemeral=True)
+
+        # 更新資料
         self.vote_data.remove_option(selected)
         self.vote_view.update_buttons()
 
-        # ===========================
-        # 刪除舊的選項訊息
-        # ===========================
-        if self.vote_view.options_message is not None:
+        # 刪除舊訊息
+        if self.vote_view.options_message:
             try:
                 await self.vote_view.options_message.delete()
-            except:
-                pass  # 若已被刪除則忽略
+            except discord.NotFound:
+                pass
 
-        # ===========================
-        # 傳送新的選項訊息
-        # ===========================
-        new_msg = await interaction.channel.send(view=self.vote_view)
+        # 發送新的選項訊息
+        new_msg = await interaction.followup.send(view=self.vote_view)
+        self.vote_view.options_message = new_msg
 
-        await interaction.response.send_message(
-            f"已刪除選項：**{selected}**", ephemeral=True
-        )
+        # 回報使用者
+        await interaction.followup.send(f"已刪除選項：**{selected}**", ephemeral=True)
 
 
 class RemoveOptionView(discord.ui.View):
