@@ -463,7 +463,6 @@ class VoteControlView(discord.ui.View):
             )
             return
 
-        # 組合結果文字
         result_text = "\n".join(f"{opt}: {count} 票" for opt, count in results.items())
 
         if interaction.user == self.vote_data.author:
@@ -475,21 +474,22 @@ class VoteControlView(discord.ui.View):
             # 停用所有控制按鈕
             for child in self.children:
                 child.disabled = True
-            # 停用投票選項按鈕
+            # 停用所有選項按鈕
             for child in self.vote_view.children:
                 child.disabled = True
 
-            # 更新原本的控制面板訊息 → 所有按鈕都失效
+            # 更新控制面板
             try:
                 await interaction.message.edit(view=self)
             except:
                 pass
 
-        else:
-            # ----- 參加者：只顯示目前結果，不結束投票 -----
-            await interaction.response.send_message(
-                f"📊 目前投票結果：\n{result_text}", ephemeral=True
-            )
+            # ⭐⭐⭐ 這是你缺少的部分：更新選項訊息 ⭐⭐⭐
+            if self.vote_view.options_message:
+                try:
+                    await self.vote_view.options_message.edit(view=self.vote_view)
+                except:
+                    pass
 
     @discord.ui.button(label="👀 查看投票者", style=discord.ButtonStyle.secondary)
     async def show_voters(
