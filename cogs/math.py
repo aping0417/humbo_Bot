@@ -166,9 +166,7 @@ class RPSCog(commands.Cog):
         self.bot = bot
 
 
-# ==================================================
 # 1. VoteData（資料模型）
-# ==================================================
 class VoteData:
     def __init__(
         self,
@@ -218,9 +216,7 @@ class VoteData:
         return result
 
 
-# ==================================================
 # 2. VoteButton & VoteOptionView（投票按鈕）
-# ==================================================
 class VoteButton(discord.ui.Button):
     def __init__(self, option: str, vote_data: VoteData):
         super().__init__(label=option, style=discord.ButtonStyle.primary)
@@ -247,9 +243,7 @@ class VoteOptionView(discord.ui.View):
             self.add_item(VoteButton(option, self.vote_data))
 
 
-# ==================================================
 # 3. 新增／刪除／清除選項（Modals & Views）
-# ==================================================
 class AddOptionModal(discord.ui.Modal, title="新增投票選項"):
     option = discord.ui.TextInput(label="請輸入選項內容", max_length=100)
 
@@ -373,16 +367,13 @@ class ClearAllOptionsView(discord.ui.View):
         await interaction.message.edit(view=self)
 
 
-# ==================================================
 # 4. 投票控制台（VoteControlView）
-# ==================================================
 class VoteControlView(discord.ui.View):
     def __init__(self, vote_data: VoteData):
         super().__init__(timeout=None)
         self.vote_data = vote_data
         self.vote_view = VoteOptionView(vote_data)
 
-    # ➕ 加選項
     @discord.ui.button(label="➕ 加選項", style=discord.ButtonStyle.primary)
     async def add_option(self, interaction, button):
         if (
@@ -398,7 +389,6 @@ class VoteControlView(discord.ui.View):
             AddOptionModal(self.vote_data, self.vote_view)
         )
 
-    # ➖ 刪選項
     @discord.ui.button(label="➖ 刪選項", style=discord.ButtonStyle.secondary)
     async def remove_option(self, interaction, button):
         if (
@@ -420,7 +410,6 @@ class VoteControlView(discord.ui.View):
             view=RemoveOptionView(self.vote_data, self.vote_view), ephemeral=True
         )
 
-    # 🗑 刪除全部選項
     @discord.ui.button(label="🗑 刪除全部選項", style=discord.ButtonStyle.danger)
     async def clear_all(self, interaction, button):
         if interaction.user != self.vote_data.author:
@@ -435,7 +424,6 @@ class VoteControlView(discord.ui.View):
             ephemeral=True,
         )
 
-    # 📊 顯示投票結果
     @discord.ui.button(label="📊 顯示投票結果", style=discord.ButtonStyle.success)
     async def show_results(self, interaction, button):
         results = self.vote_data.get_results()
@@ -481,7 +469,6 @@ class VoteControlView(discord.ui.View):
             f"📊 投票結果：\n{result_text}", ephemeral=True
         )
 
-    # 👀 查看投票者
     @discord.ui.button(label="👀 查看投票者", style=discord.ButtonStyle.secondary)
     async def show_voters(self, interaction, button):
         if self.vote_data.is_anonymous:
@@ -503,9 +490,7 @@ class VoteControlView(discord.ui.View):
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 
-# ==================================================
 # 5. 投票設定頁（VoteSettingsView）
-# ==================================================
 class VoteSettingsView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -543,9 +528,7 @@ class VoteSettingsView(discord.ui.View):
         )
 
 
-# ==================================================
 # 6. 輸入投票主題（InputTitleModal）
-# ==================================================
 class InputTitleModal(discord.ui.Modal, title="輸入投票主題"):
     title_input = discord.ui.TextInput(label="投票主題", max_length=200)
 
@@ -580,9 +563,7 @@ class InputTitleModal(discord.ui.Modal, title="輸入投票主題"):
         vote_view.options_message = msg
 
 
-# ==================================================
 # 7. Cog（入口點）
-# ==================================================
 class VoteCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
