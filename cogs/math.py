@@ -524,7 +524,16 @@ class VoteStartEndView(discord.ui.View):
     async def start_vote(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
-        await interaction.response.send_message(
+
+        # 停用開始與結束按鈕
+        for child in self.children:
+            child.disabled = True
+
+        # 更新原訊息 → 按鈕變灰
+        await interaction.response.edit_message(view=self)
+
+        # 再送出設定畫面的 ephemeral 訊息
+        await interaction.followup.send(
             "請設定投票參數：", view=VoteSettingsView(), ephemeral=True
         )
 
@@ -532,7 +541,16 @@ class VoteStartEndView(discord.ui.View):
     async def end_vote(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
-        await interaction.response.send_message("投票已結束！", ephemeral=True)
+
+        # 停用開始與結束按鈕
+        for child in self.children:
+            child.disabled = True
+
+        # 更新原訊息
+        await interaction.response.edit_message(view=self)
+
+        # 傳送 ephemeral 通知
+        await interaction.followup.send("投票已結束！", ephemeral=True)
 
 
 # ------------------- 設定頁面 -------------------
