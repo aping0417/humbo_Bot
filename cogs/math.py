@@ -334,12 +334,6 @@ class ClearAllOptionsView(discord.ui.View):
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
 
-        if interaction.user != self.vote_data.author:
-            await interaction.response.send_message(
-                "❗ 只有投票創建者可以清除所有選項。", ephemeral=True
-            )
-            return
-
         await interaction.response.defer(ephemeral=True)
 
         # 清空資料
@@ -412,12 +406,6 @@ class VoteControlView(discord.ui.View):
 
     @discord.ui.button(label="🗑 刪除全部選項", style=discord.ButtonStyle.danger)
     async def clear_all(self, interaction, button):
-        if interaction.user != self.vote_data.author:
-            await interaction.response.send_message(
-                "❗ 只有投票創建者可以清除所有選項。", ephemeral=True
-            )
-            return
-
         await interaction.response.send_message(
             "⚠️ 你確定要刪除所有選項嗎？此操作不可逆！",
             view=ClearAllOptionsView(self.vote_data, self.vote_view),
