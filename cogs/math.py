@@ -175,7 +175,6 @@ class VoteData:
         is_anonymous=False,
         allow_add_option=False,
         allow_remove_option=False,
-        allow_view_voters=False,
     ):
         self.title = title
         self.author = author
@@ -184,7 +183,7 @@ class VoteData:
         self.is_anonymous = is_anonymous
         self.allow_add_option = allow_add_option
         self.allow_remove_option = allow_remove_option
-        self.allow_view_voters = allow_view_voters
+        self.allow_view_voters = True  # 👈 永遠允許查看投票者
 
     def add_option(self, option: str):
         if option not in self.options:
@@ -504,14 +503,6 @@ class VoteControlView(discord.ui.View):
     async def show_voters(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
-        if (
-            interaction.user != self.vote_data.author
-            and not self.vote_data.allow_view_voters
-        ):
-            await interaction.response.send_message(
-                "❗ 你沒有權限查看投票者名單。", ephemeral=True
-            )
-            return
         if self.vote_data.is_anonymous:
             await interaction.response.send_message(
                 "🙈 本次為匿名投票，無法查看投票者名單。", ephemeral=True
@@ -535,7 +526,6 @@ class VoteSettingsView(discord.ui.View):
         self.is_anonymous = False
         self.allow_add_option = False
         self.allow_remove_option = False
-        self.allow_view_voters = False
 
     @discord.ui.button(label="匿名投票 ❌", style=discord.ButtonStyle.secondary)
     async def toggle_anonymous(
@@ -561,14 +551,6 @@ class VoteSettingsView(discord.ui.View):
         button.label = f"允許刪除選項 {'✅' if self.allow_remove_option else '❌'}"
         await interaction.response.edit_message(view=self)
 
-    @discord.ui.button(label="允許查看投票者 ❌", style=discord.ButtonStyle.secondary)
-    async def toggle_view_voters(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        self.allow_view_voters = not self.allow_view_voters
-        button.label = f"允許查看投票者 {'✅' if self.allow_view_voters else '❌'}"
-        await interaction.response.edit_message(view=self)
-
     @discord.ui.button(label="✅ 完成設定", style=discord.ButtonStyle.success)
     async def finish_settings(
         self, interaction: discord.Interaction, button: discord.ui.Button
@@ -579,7 +561,6 @@ class VoteSettingsView(discord.ui.View):
                 self.is_anonymous,
                 self.allow_add_option,
                 self.allow_remove_option,
-                self.allow_view_voters,
                 interaction.user,
             )
         )
@@ -594,12 +575,11 @@ class VoteCog(commands.Cog):
 class InputTitleModal(discord.ui.Modal, title="輸入投票主題"):
     title_input = discord.ui.TextInput(label="投票主題", max_length=200)
 
-    def __init__(self, is_anonymous, allow_add, allow_remove, allow_view, author):
+    def __init__(self, is_anonymous, allow_add, allow_remove, author):
         super().__init__()
         self.is_anonymous = is_anonymous
         self.allow_add = allow_add
         self.allow_remove = allow_remove
-        self.allow_view = allow_view
         self.author = author
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -609,7 +589,6 @@ class InputTitleModal(discord.ui.Modal, title="輸入投票主題"):
             is_anonymous=self.is_anonymous,
             allow_add_option=self.allow_add,
             allow_remove_option=self.allow_remove,
-            allow_view_voters=self.allow_view,
         )
 
         vote_view = VoteOptionView(vote_data)
