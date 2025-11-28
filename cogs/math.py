@@ -461,10 +461,14 @@ class VoteControlView(discord.ui.View):
 
         result_text = "\n".join(f"{opt}: {count} 票" for opt, count in results.items())
 
+        # ======================
+        #  創建者按下結果按鈕 → 結束投票
+        # ======================
         if interaction.user == self.vote_data.author:
-            # ----- 創建者：顯示最終結果，並結束投票 -----
+            # 公開結果（作者會結束投票）
             await interaction.response.send_message(
-                f"📊 投票結果（已結束）：\n{result_text}", ephemeral=False, silent=True
+                f"📊 投票結果（已結束）：\n{result_text}",
+                ephemeral=False,  # 公開給所有人
             )
 
             # 停用所有控制按鈕
@@ -480,12 +484,21 @@ class VoteControlView(discord.ui.View):
             except:
                 pass
 
-            # ⭐⭐⭐ 這是你缺少的部分：更新選項訊息 ⭐⭐⭐
+            # 更新選項按鈕
             if self.vote_view.options_message:
                 try:
                     await self.vote_view.options_message.edit(view=self.vote_view)
                 except:
                     pass
+
+            return
+
+        # ======================
+        #  一般參加者按下結果按鈕 → 只看到 ephemeral 結果
+        # ======================
+        await interaction.response.send_message(
+            f"📊 投票結果：\n{result_text}", ephemeral=True  # ⭐ 只有自己看得到
+        )
 
     @discord.ui.button(label="👀 查看投票者", style=discord.ButtonStyle.secondary)
     async def show_voters(
