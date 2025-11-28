@@ -414,8 +414,14 @@ class VoteControlView(discord.ui.View):
 
     @discord.ui.button(label="📊 顯示投票結果", style=discord.ButtonStyle.success)
     async def show_results(self, interaction, button):
-        results = self.vote_data.get_results()
+        # 僅允許創建者使用
+        if interaction.user != self.vote_data.author:
+            await interaction.response.send_message(
+                "❌ 只有投票創建者可以查看投票結果。", ephemeral=True
+            )
+            return
 
+        results = self.vote_data.get_results()
         if not results:
             await interaction.response.send_message(
                 "目前沒有投票紀錄。", ephemeral=True
@@ -424,38 +430,26 @@ class VoteControlView(discord.ui.View):
 
         result_text = "\n".join(f"{opt}: {count} 票" for opt, count in results.items())
 
-        # 創建者 → 結束投票
-        if interaction.user == self.vote_data.author:
-            await interaction.response.send_message(
-                f"📊 投票結果（已結束）：\n{result_text}",
-                ephemeral=False,
-            )
+        # 創建者查看投票結果並停用按鈕（結束投票）
+        await interaction.response.send_message(
+            f"📊 投票結果（已結束）：\n{result_text}", ephemeral=False
+        )
 
-            # 停用所有按鈕
-            for child in self.children:
-                child.disabled = True
-            for child in self.vote_view.children:
-                child.disabled = True
+        for child in self.children:
+            child.disabled = True
+        for child in self.vote_view.children:
+            child.disabled = True
 
-            # 更新控制面板
+        # 更新控制台與選項按鈕訊息
+        try:
+            await interaction.message.edit(view=self)
+        except:
+            pass
+        if self.vote_view.options_message:
             try:
-                await interaction.message.edit(view=self)
+                await self.vote_view.options_message.edit(view=self.vote_view)
             except:
                 pass
-
-            # 更新選項按鈕
-            if self.vote_view.options_message:
-                try:
-                    await self.vote_view.options_message.edit(view=self.vote_view)
-                except:
-                    pass
-
-            return
-
-        # 普通使用者 → ephemeral
-        await interaction.response.send_message(
-            f"📊 投票結果：\n{result_text}", ephemeral=True
-        )
 
     @discord.ui.button(label="👀 查看投票者", style=discord.ButtonStyle.secondary)
     async def show_voters(self, interaction, button):
