@@ -528,44 +528,6 @@ class VoteControlView(discord.ui.View):
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 
-# ------------------- 開始/結束投票 -------------------
-class VoteStartEndView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="🟢 開始投票", style=discord.ButtonStyle.success)
-    async def start_vote(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-
-        # 停用開始與結束按鈕
-        for child in self.children:
-            child.disabled = True
-
-        # 更新原訊息 → 按鈕變灰
-        await interaction.response.edit_message(view=self)
-
-        # 再送出設定畫面的 ephemeral 訊息
-        await interaction.followup.send(
-            "請設定投票參數：", view=VoteSettingsView(), ephemeral=True
-        )
-
-    @discord.ui.button(label="🔴 結束投票", style=discord.ButtonStyle.danger)
-    async def end_vote(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-
-        # 停用開始與結束按鈕
-        for child in self.children:
-            child.disabled = True
-
-        # 更新原訊息
-        await interaction.response.edit_message(view=self)
-
-        # 傳送 ephemeral 通知
-        await interaction.followup.send("投票已結束！", ephemeral=True)
-
-
 # ------------------- 設定頁面 -------------------
 class VoteSettingsView(discord.ui.View):
     def __init__(self):
@@ -816,10 +778,9 @@ class Math(Cog_Extension):
         )
 
     @app_commands.command(name="投票", description="建立一個互動式投票")
-    async def vote_command(self, interaction: discord.Interaction):
-        # 呼叫我們剛剛寫的 VoteStartEndView
+    async def vote(self, interaction: discord.Interaction):
         await interaction.response.send_message(
-            "請點選開始或結束投票：", view=VoteStartEndView()
+            "請設定投票參數：", view=VoteSettingsView(), ephemeral=True  # 給自己看即可
         )
 
     @app_commands.command(name="領取身分組", description="顯示可領取的身分組按鈕")
