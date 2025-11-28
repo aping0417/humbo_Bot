@@ -417,7 +417,7 @@ class VoteControlView(discord.ui.View):
         # 僅允許創建者使用
         if interaction.user != self.vote_data.author:
             await interaction.response.send_message(
-                "❌ 只有投票創建者可以查看投票結果。", ephemeral=True
+                "❌ 只有投票創建者可以顯示投票結果。", ephemeral=True
             )
             return
 
@@ -428,13 +428,19 @@ class VoteControlView(discord.ui.View):
             )
             return
 
-        result_text = "\n".join(f"{opt}: {count} 票" for opt, count in results.items())
+        lines = [f"📊 **投票結果：{self.vote_data.title}**"]
+        if self.vote_data.is_anonymous:
+            for opt, count in results.items():
+                lines.append(f"{opt}: {count} 票")
+        else:
+            voters = self.vote_data.get_voters()
+            for opt, count in results.items():
+                user_list = ", ".join(f"<@{uid}>" for uid in voters.get(opt, []))
+                lines.append(f"{opt}: {count} 票 — {user_list if user_list else ''}")
 
-        # 創建者查看投票結果並停用按鈕（結束投票）
-        await interaction.response.send_message(
-            f"📊 投票結果（已結束）：\n{result_text}", ephemeral=False
-        )
+        await interaction.response.send_message("\n".join(lines), ephemeral=False)
 
+        # 結束投票：停用所有按鈕
         for child in self.children:
             child.disabled = True
         for child in self.vote_view.children:
@@ -451,23 +457,26 @@ class VoteControlView(discord.ui.View):
             except:
                 pass
 
-    @discord.ui.button(label="👀 查看投票者", style=discord.ButtonStyle.secondary)
-    async def show_voters(self, interaction, button):
-        if self.vote_data.is_anonymous:
+    @discord.ui.button(label="👀 目前投票狀況", style=discord.ButtonStyle.secondary)
+    async def show_status(self, interaction, button):
+        results = self.vote_data.get_results()
+        if not results:
             await interaction.response.send_message(
-                "🙈 本次為匿名投票，無法查看名單。", ephemeral=True
+                "目前沒有投票紀錄。", ephemeral=True
             )
             return
 
-        voters = self.vote_data.get_voters()
-        if not voters:
-            await interaction.response.send_message("目前沒有人投票。", ephemeral=True)
-            return
-
-        lines = ["👀 **查看投票者**"]
-        for opt, users in voters.items():
-            names = ", ".join(f"<@{uid}>" for uid in users)
-            lines.append(f"{opt}: {names}")
+        lines = ["👀 **目前投票狀況**"]
+        if self.vote_data.is_anonymous:
+            # 匿名投票：只顯示選項與票數
+            for opt, count in results.items():
+                lines.append(f"{opt}: {count} 票")
+        else:
+            # 公開投票：顯示選項、票數與投票者
+            voters = self.vote_data.get_voters()
+            for opt, count in results.items():
+                user_list = ", ".join(f"<@{uid}>" for uid in voters.get(opt, []))
+                lines.append(f"{opt}: {count} 票 — {user_list if user_list else ''}")
 
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
