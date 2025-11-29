@@ -565,40 +565,52 @@ class VoteCog(commands.Cog):
 
 class RoleButton(discord.ui.Button):
     def __init__(self, role: discord.Role):
-        # 初始化按鈕，預設顏色為藍色
+        # 按鈕標籤 = 身分組名稱，顏色固定用藍色就好
         super().__init__(label=role.name, style=discord.ButtonStyle.primary)
         self.role = role
 
     async def callback(self, interaction: discord.Interaction):
         member = interaction.user
         role = self.role
+        guild = interaction.guild
+
+        # 取得機器人在這個伺服器的身分
+        bot_member = guild.me
+
+        # 檢查是不是有「管理身分組」權限
+        if not bot_member.guild_permissions.manage_roles:
+            await interaction.response.send_message(
+                "❌ 我沒有 `管理身分組` 的權限，不能幫你加/移除身分組。",
+                ephemeral=True,
+            )
+            return
+
+        # 檢查順位：機器人的最高身分組要在目標身分組上面
+        if role >= bot_member.top_role:
+            await interaction.response.send_message(
+                f"❌ 我的身分組順位在 `{role.name}` 下面，無法管理這個身分組。\n"
+                f"請把機器人的身分組拖到 `{role.name}` 之上。",
+                ephemeral=True,
+            )
+            return
 
         # 加或移除角色
         if role in member.roles:
-            await member.remove_roles(role)
-            action_text = f"❌ 你已移除身分組 **{role.name}**"
-            self.style = discord.ButtonStyle.primary  # 移除後顏色改藍色
+            await member.remove_roles(role, reason="自助移除身分組")
+            msg = f"❌ 你已移除身分組 **{role.name}**"
         else:
-            await member.add_roles(role)
-            action_text = f"✅ 你已領取身分組 **{role.name}**"
-            self.style = discord.ButtonStyle.danger  # 加上後顏色改紅色
+            await member.add_roles(role, reason="自助領取身分組")
+            msg = f"✅ 你已領取身分組 **{role.name}**"
 
-        # 只更新目前按鈕所在的 View
-        await interaction.response.edit_message(content=action_text, view=self.view)
+        # ✅ 不動原本的面板，只給這個人看結果
+        await interaction.response.send_message(msg, ephemeral=True)
 
 
 class RoleButtonView(discord.ui.View):
-    def __init__(self, roles: list[discord.Role], member: discord.Member):
-        super().__init__(timeout=None)  # 永不超時
+    def __init__(self, roles: list[discord.Role]):
+        super().__init__(timeout=None)  # 面板可以一直存在
         for role in roles:
-            button = RoleButton(role)
-            # 設定按鈕初始顏色
-            button.style = (
-                discord.ButtonStyle.danger
-                if role in member.roles
-                else discord.ButtonStyle.primary
-            )
-            self.add_item(button)
+            self.add_item(RoleButton(role))
 
 
 # === 一鍵清除全部按鈕的互動介面 ===
@@ -717,38 +729,44 @@ class Math(Cog_Extension):
     @app_commands.command(name="領取身分組", description="顯示可領取的身分組按鈕")
     async def role_command(self, interaction: discord.Interaction):
         guild = interaction.guild
-        member = interaction.user
+        bot_member = guild.me
+
+        # 伺服器裡所有身分組（從高到低）
         roles = guild.roles
 
-        # 過濾可領取角色
-        claimable_roles = [r for r in roles if not r.managed and r.name != "@everyone"]
+        # 🔹 自動抓「這個伺服器」裡可領的身分組：
+        # 1. 不是 @everyone
+        # 2. 不是整合/managed 身分組（給別的 bot 用的那種）
+        # 3. 排在機器人最高身分組下面（不然 bot 管不到）
+        # 4. （可選）名字前面有特定前綴，例如「自取-」
+        claimable_roles = [
+            r
+            for r in roles
+            if not r.managed and r.name != "@everyone" and r < bot_member.top_role
+            # and r.name.startswith("自取-") # 前綴控制 需要時啟用
+        ]
+
         if not claimable_roles:
             await interaction.response.send_message(
-                "這個伺服器目前沒有可領取的身分組。", ephemeral=True
+                "這個伺服器目前沒有可領取的身分組。\n"
+                "（可能是：沒設前綴、或是我的身分組順位太低、或是完全沒有自取用的身分組）",
+                ephemeral=True,
             )
             return
 
-        # 建立嵌入訊息
+        # 排序一下，讓上面的位置先顯示
+        claimable_roles = sorted(
+            claimable_roles, key=lambda r: r.position, reverse=True
+        )
+
         embed = discord.Embed(
             title=f"🎭 領取 {guild.name} 的身分組",
             description="點擊下方按鈕即可領取或移除身分組：",
             color=discord.Color.blue(),
         )
 
-        # 創建按鈕 View
-        view = RoleButtonView(claimable_roles, member)
-
-        # 發送訊息
+        view = RoleButtonView(claimable_roles)
         await interaction.response.send_message(embed=embed, view=view)
-
-    @app_commands.command(name="確認機器人權限")
-    async def check_perm(self, interaction: discord.Interaction):
-        bot_member = interaction.guild.me
-        await interaction.response.send_message(
-            f"🤖 機器人擁有的最高角色：{bot_member.top_role}\n"
-            f"🧱 可管理身分組權限：{bot_member.guild_permissions.manage_roles}",
-            ephemeral=True,
-        )
 
     @app_commands.command(name="查詢身分組", description="顯示伺服器中每個身分組的成員")
     async def roles_info(self, interaction: discord.Interaction):
