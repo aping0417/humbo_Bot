@@ -90,7 +90,7 @@ async def add_input_to_guild_playlist(
     playlist_manager.ensure_playlist_exists(guild_id)
 
     try:
-        # Spotify：track / playlist → 關鍵字 → ytsearch
+        # ▓▓ Spotify：track / playlist → 關鍵字 → ytsearch
         if "open.spotify.com" in raw:
             keywords = extract_spotify_track_info(raw) or []
             if len(keywords) > limit:
@@ -101,14 +101,12 @@ async def add_input_to_guild_playlist(
                 audio_url, title = await player.download_audio_async(f"ytsearch:{kw}")
                 playlist_manager.add_song(guild_id, title, audio_url)
                 added.append(title)
+
             return len(added), added, truncated
 
-        # YouTube 播放清單 / Mix / Radio
+        # ▓▓ YouTube 播放清單 / Mix / Radio
         if ("list=" in raw) or ("playlist?" in raw) or ("start_radio=1" in raw):
-            # 判斷是不是 Mix/Radio
             is_mix = is_youtube_mix_or_radio(raw)
-            # 一般清單 = 用 MAX_PLAYLIST_ITEMS（現在 1000）
-            # Mix/Radio = 用 MAX_MIX_ITEMS（現在 100）
             per_limit = MAX_MIX_ITEMS if is_mix else MAX_PLAYLIST_ITEMS
 
             def _flat_extract():
@@ -120,13 +118,10 @@ async def add_input_to_guild_playlist(
             entries = (info or {}).get("entries", []) or []
             total = (info or {}).get("playlist_count") or len(entries)
 
-            # 如果有設 per_limit，就看 playlist_count 有沒有大於 per_limit 來判斷有沒有被截斷
             truncated = bool(per_limit and total > per_limit)
 
             added = []
             skipped = 0
-
-            # 有 per_limit 的話只處理前 per_limit 首；沒有就全處理
             items = itertools.islice(entries, per_limit) if per_limit else entries
 
             for video in items:
@@ -135,7 +130,6 @@ async def add_input_to_guild_playlist(
                     skipped += 1
                     continue
 
-                # 過濾明確不可播的項目
                 t = (video.get("title") or "").lower()
                 if t in (
                     "[private video]",
@@ -163,8 +157,16 @@ async def add_input_to_guild_playlist(
             )
             return len(added), added, truncated
 
+        # ▓▓ 其他情況：單首 YouTube 連結 或 關鍵字（自動 ytsearch）
+        audio_url, title = await player.download_audio_async(raw)
+        playlist_manager.add_song(guild_id, title, audio_url)
+        added.append(title)
+
+        return len(added), added, truncated
+
     except Exception as e:
         print(f"[add_input_to_guild_playlist] error: {e}")
+        # 就算出錯也要保證回傳 tuple
         return 0, added, truncated
 
 
@@ -858,16 +860,6 @@ class Music(Cog_Extension):
         elif voice_client.channel != voice_channel:
             await voice_client.move_to(voice_channel)
 
-    @app_commands.command(name="list", description="看播放佇列")
-    async def list(self, interaction: discord.Interaction):
-        if not self.player.play_queue:
-            await interaction.response.send_message("📭 播放清單是空的。")
-        else:
-            queue_display = "\n".join(
-                f"{i+1}. {title}" for i, (title, _) in enumerate(self.player.play_queue)
-            )
-        await interaction.response.send_message(f"📃 播放清單:\n{queue_display}")
-
     @app_commands.command(name="create_playlist", description="創建新的歌單 已經停用了")
     async def create_playlist(self, interaction: discord.Interaction, name: str):
         await interaction.response.send_message(f"就跟你說停用了還建 你是看不懂是不是")
@@ -984,7 +976,7 @@ class Music(Cog_Extension):
         log.info(f"[play_playlist] guild={guild_id} by {interaction.user}")
 
     @app_commands.command(name="show_playlist", description="查看這個伺服器的歌單")
-    async def show_playlist(self, interaction: discord.Interaction):
+    async def list(self, interaction: discord.Interaction):
         guild_id = str(interaction.guild.id)
         self.playlist_manager.ensure_playlist_exists(guild_id)
 
