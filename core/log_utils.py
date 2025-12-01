@@ -1,7 +1,6 @@
 import os
 from datetime import datetime
 
-# 統一放在專案底下的 logs 資料夾
 LOG_DIR = "logs"
 os.makedirs(LOG_DIR, exist_ok=True)
 

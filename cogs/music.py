@@ -22,9 +22,9 @@ load_dotenv()
 log = logging.getLogger("music")
 
 # 針對不同型態的清單分流
-MAX_BULK_ADD = 1000  # 一次最多載入 50 首
-MAX_MIX_ITEMS = 100  # 🔒 Mix/Radio 只抓前 100
-MAX_PLAYLIST_ITEMS = 1000  # ✅ 一般清單限制1000首
+MAX_BULK_ADD = 1000
+MAX_MIX_ITEMS = 100  # Mix/Radio 只抓前 100
+MAX_PLAYLIST_ITEMS = 1000  # 一般清單限制1000首
 
 
 ydl_opts = {
@@ -100,7 +100,7 @@ async def add_input_to_guild_playlist(
     added, truncated = [], False
     playlist_manager.ensure_playlist_exists(guild_id)
 
-    # 這個 flag 用來確認「第一首」是否已經觸發過播放
+    # 用來確認「第一首」是否已經觸發過播放
     first_started = False
 
     def _maybe_autoplay_first():
@@ -112,13 +112,13 @@ async def add_input_to_guild_playlist(
             and voice_client.is_connected()
             and not voice_client.is_playing()
         ):
-            # 設定目前播放的歌單，讓 player 從這個 guild 的 DB 播
+
             player.current_playlist_id = guild_id
             player.play_next(voice_client)
             first_started = True
 
     try:
-        # 🔹 Spotify：track / playlist → 關鍵字 → ytsearch
+        #  Spotify：track / playlist → 關鍵字 → ytsearch
         if "open.spotify.com" in raw:
             keywords = extract_spotify_track_info(raw) or []
             if len(keywords) > limit:
@@ -130,7 +130,7 @@ async def add_input_to_guild_playlist(
                 playlist_manager.add_song(guild_id, title, audio_url)
                 added.append(title)
 
-                # ✅ 成功加進一首就嘗試啟動播放（只會觸發一次）
+                # 成功加進就嘗試啟動播放
                 _maybe_autoplay_first()
 
             return len(added), added, truncated
@@ -183,7 +183,7 @@ async def add_input_to_guild_playlist(
                 playlist_manager.add_song(guild_id, title2, audio_url)
                 added.append(title2)
 
-                # ✅ 第一首成功加入時就啟動播放
+                # 成功加入時就啟動播放
                 _maybe_autoplay_first()
 
             log.info(
@@ -262,15 +262,14 @@ class MusicPlayer:
             log.warning("⚠️ Voice client 不存在或未連線")
             return
 
-        # 目前所在伺服器
         gid = str(voice_client.guild.id)
 
-        # 1) 先放記憶體佇列
+        # 1) 先放記憶體
         if self.play_queue:
             url, title, playlist_name = self.play_queue.pop(0)
             log.info(f"從佇列播放：{title} ({url}), 來源 playlist={playlist_name}")
 
-        # 2) 再從資料庫取（依隨機/順序）
+        # 2) 再從資料庫取
         elif self.current_playlist_id:
             # 以 current_playlist_id 為主
             gid = self.current_playlist_id
@@ -416,7 +415,7 @@ class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
         self.add_item(self.input)
 
     async def on_submit(self, interaction: Interaction):
-        # ✅ 立刻回覆互動（避免 3 秒逾時）
+        # 立刻回覆互動
         await interaction.response.defer(thinking=True, ephemeral=True)
 
         guild_id = str(interaction.guild.id)
@@ -427,7 +426,7 @@ class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
         auto_play_first = bool(vc and vc.is_connected() and not vc.is_playing())
 
         try:
-            # 寫入 DB，同時在內部處理「第一首就播」
+            # 寫入 DB，同時在內部處理
             count, titles, truncated = await add_input_to_guild_playlist(
                 self.player,
                 self.playlist_manager,
@@ -438,7 +437,7 @@ class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
                 auto_play_first=auto_play_first,
             )
 
-            # 🔁（可選）保留一個保險機制：
+            # 保留一個保險機制：
             # 如果前面因為某些原因沒啟動播放，但現在已經有歌，就在這裡再檢查一次。
             if (
                 vc
@@ -451,7 +450,7 @@ class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
                 self.player.current_playlist_id = guild_id
                 self.player.play_next(vc)
 
-            # ✅ 用 followup 回覆結果
+            # 用 followup 回覆結果
             if count == 0:
                 await interaction.followup.send(
                     "❌ 沒有成功加入任何歌曲。", ephemeral=True
@@ -471,7 +470,7 @@ class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
 class MusicControlView(ui.View):
     def __init__(self, player):
         super().__init__(timeout=None)
-        self.player = player  # 只保存 player
+        self.player = player
 
     # 小工具：找指定 custom_id 的按鈕
     def _btn(self, cid: str) -> ui.Button | None:
@@ -497,7 +496,6 @@ class MusicControlView(ui.View):
         if not b:
             return
         b.label = "🔀 隨機：開" if enabled else "🔀 隨機：關"
-        # 你的專案同時用到 gray/grey，這裡沿用 grey；若庫只支援 gray，改成 ButtonStyle.gray 即可
         b.style = ButtonStyle.green if enabled else ButtonStyle.grey
 
     # 播放鍵啟用/停用
@@ -506,7 +504,7 @@ class MusicControlView(ui.View):
         if b:
             b.disabled = disabled
 
-    # 依據目前 voice 狀態同步整體 UI（/panel 初次建立會用）
+    # 依據目前 voice 狀態同步整體 UI
     def sync_with_voice(self, vc):
         # 暫停鍵樣式
         self._set_pause_visual(paused=bool(vc and vc.is_paused()))
@@ -515,7 +513,7 @@ class MusicControlView(ui.View):
 
         gid = str(getattr(getattr(vc, "guild", None), "id", "")) if vc else None
 
-        # now 按鈕（有在播/暫停且有 now_playing 才能按）
+        # now 按鈕
         np = (
             self.player.get_now_playing()
             if hasattr(self.player, "get_now_playing")
@@ -528,7 +526,7 @@ class MusicControlView(ui.View):
         if gid:
             self._set_shuffle_visual(self.player.is_shuffle(gid))
 
-        # 目前歌單按鈕（有歌才可按）
+        # 目前歌單按鈕
         self._set_queue_disabled(not (gid and self._has_any_tracks(gid)))
 
     def _set_now_disabled(self, disabled: bool):
@@ -549,7 +547,7 @@ class MusicControlView(ui.View):
         except Exception:
             return False
 
-    # ▶️ 播放（公開訊息：直接 edit_message）
+    #  播放
     @ui.button(label="▶️ 播放", style=ButtonStyle.green, custom_id="play")
     async def play(self, interaction: Interaction, button: ui.Button):
         try:
@@ -588,7 +586,7 @@ class MusicControlView(ui.View):
             else:
                 await interaction.followup.send(f"⚠️ 播放失敗：{e}")
 
-    # ⏸️/▶️ 暫停/繼續（同一顆按鈕）
+    # 暫停/繼續
     @ui.button(label="⏸️ 暫停", style=ButtonStyle.blurple, custom_id="pause")
     async def pause(self, interaction: Interaction, button: ui.Button):
         try:
@@ -622,7 +620,7 @@ class MusicControlView(ui.View):
             else:
                 await interaction.followup.send(f"⚠️ 暫停/繼續失敗：{e}")
 
-    # ⏭️ 跳過：會觸發 after，進入下一首
+    # 跳過
     @ui.button(label="⏭️ 跳過", style=ButtonStyle.grey, custom_id="skip")
     async def skip(self, interaction: Interaction, button: ui.Button):
         try:
@@ -649,7 +647,7 @@ class MusicControlView(ui.View):
             else:
                 await interaction.followup.send(f"⚠️ 跳過失敗：{e}")
 
-    # ⏹️ 停止：離開語音、恢復播放鍵可按
+    # 停止
     @ui.button(label="⏹️ 停止", style=ButtonStyle.red, custom_id="stop")
     async def stop(self, interaction: Interaction, button: ui.Button):
         try:
@@ -674,7 +672,6 @@ class MusicControlView(ui.View):
 
     @ui.button(label="➕ 載入歌曲", style=ButtonStyle.green, custom_id="add")
     async def add(self, interaction: Interaction, button: ui.Button):
-        # 開 Modal
         modal = AddSongModal(self.player, self.player.playlist_manager)
         await interaction.response.send_modal(modal)
 
@@ -702,7 +699,7 @@ class MusicControlView(ui.View):
             title = np.get("title", "未知標題")
             lines = [f"🎶 **{title}**"]
 
-            # 只回純文字，不編輯面板
+            # 只回純文字
             await interaction.response.send_message(
                 "\n".join(lines), ephemeral=True, suppress_embeds=True
             )
@@ -726,7 +723,6 @@ class MusicControlView(ui.View):
         # 更新自己外觀
         self._set_shuffle_visual(new_state)
 
-        # 公開面板要用 edit_message 同步給所有人
         await interaction.response.edit_message(view=self)
         await interaction.followup.send(
             f"🔀 隨機播放已{'開啟' if new_state else '關閉'}。", ephemeral=True
@@ -736,7 +732,6 @@ class MusicControlView(ui.View):
     async def queue(self, interaction: Interaction, button: ui.Button):
         guild_id = str(interaction.guild.id)
 
-        # 若擔心查 DB 花超過 3 秒，先 defer；注意是 ephemeral，只給點按的人看
         await interaction.response.defer(ephemeral=True, thinking=False)
 
         try:
@@ -746,14 +741,13 @@ class MusicControlView(ui.View):
                 return
 
             titles = [t for (t, _u) in songs]
-            N = min(20, len(titles))  # 只顯示前 N 首，避免太長
+            N = min(20, len(titles))  # 只顯示前 20首，避免太長
             text = "📜 **目前歌單（前 20 首）**\n" + "\n".join(
                 f"{i+1}. {t}" for i, t in enumerate(titles[:N])
             )
             if len(titles) > N:
                 text += f"\n…（共 {len(titles)} 首，完整請用 `/show_playlist` ）"
 
-            # 只送出文字訊息；不要動到面板訊息、不要帶 view
             await interaction.followup.send(text, ephemeral=True)
 
         except Exception as e:
@@ -763,18 +757,16 @@ class MusicControlView(ui.View):
 class Music(Cog_Extension):
     def __init__(self, bot):
         super().__init__(bot)
-        self.bot = bot  # ✅ 確保 `bot` 存在
-        self.playlist_manager = Playlist(bot)  # ✅ 讓 `Music` 管理歌單
-        # ✅ `Music` 內部包含 `MusicPlayer`
+        self.bot = bot
+        self.playlist_manager = Playlist(bot)
         self.player = MusicPlayer(self.playlist_manager)
 
-        # 面板訊息管理：guild_id -> (channel_id, message_id)
+        # 面板訊息管理
         self.panel_map: dict[str, tuple[int, int]] = {}
 
-        # 把刷新函式註冊給 player
         self.player.set_panel_updater(self._refresh_panel_ui)
 
-        # 註冊持久化 View（重開後仍可互動）
+        # 註冊持久化 View
         self.bot.add_view(MusicControlView(self.player))
         print("✅ Music Cog 已註冊控制面板 View")
 
@@ -815,7 +807,7 @@ class Music(Cog_Extension):
 
         rec = self.panel_map.get(guild_id)
 
-        # 如果有舊面板，嘗試更新
+        # 如果有舊面板嘗試更新
         if rec:
             channel_id, message_id = rec
             try:
@@ -825,16 +817,15 @@ class Music(Cog_Extension):
                 msg = await channel.fetch_message(message_id)
                 await msg.edit(content="🎛 音樂控制面板：", view=view)
 
-                # 因為 /panel 已經 defer，所以這裡用 followup
                 await interaction.followup.send(
                     "✅ 已更新現有控制面板。", ephemeral=True
                 )
                 return
             except Exception as e:
-                # 舊訊息不見/失敗就重建
+
                 log.warning(f"[panel] 舊面板更新失敗，改為建立新面板：{e}")
 
-        # 沒有舊面板就建立新的（公開訊息）
+        # 沒有舊面板就建立新的
         sent = await interaction.followup.send("🎛 音樂控制面板：", view=view)
         self.panel_map[guild_id] = (sent.channel.id, sent.id)
         log.info(
@@ -884,7 +875,7 @@ class Music(Cog_Extension):
             )
             return
 
-        # ✅ 自動建立歌單
+        # 自動建立歌單
         guild_id = str(interaction.guild.id)
         self.playlist_manager.ensure_playlist_exists(guild_id)
 
@@ -911,7 +902,7 @@ class Music(Cog_Extension):
         self.playlist_manager.ensure_playlist_exists(guild_id)
 
         try:
-            # ▓▓ Spotify 音樂 ▓▓
+            # Spotify 音樂
             if "open.spotify.com" in url:
                 search_titles = extract_spotify_track_info(url)
                 if not search_titles:
@@ -934,7 +925,7 @@ class Music(Cog_Extension):
 
                 return
 
-            # ▓▓ YouTube 播放清單 ▓▓
+            # YouTube 播放清單
             if "playlist?" in url or "list=" in url or "start_radio=1" in url:
                 is_mix = is_youtube_mix_or_radio(url)
                 per_limit = MAX_MIX_ITEMS if is_mix else MAX_PLAYLIST_ITEMS
@@ -966,7 +957,7 @@ class Music(Cog_Extension):
                 )
                 return
 
-            # ▓▓ 單首 YouTube 歌曲 ▓▓
+            # 單首 YouTube 歌曲
             audio_url, title = self.player.download_audio(url)
             self.playlist_manager.add_song(guild_id, title, audio_url)
             await interaction.followup.send(f"✅ 已新增 `{title}` 到本伺服器的歌單")
@@ -994,7 +985,7 @@ class Music(Cog_Extension):
         elif voice_client.channel != voice_channel:
             await voice_client.move_to(voice_channel)
 
-        # ✅ 用 helper 確保 current_playlist_id 與 DB 狀態
+        # 用 helper 確保 current_playlist_id 與 DB 狀態
         has_db_songs = self.player.ensure_start_from_db(guild_id)
         if not has_db_songs and not self.player.play_queue:
             await interaction.response.send_message(
@@ -1002,7 +993,6 @@ class Music(Cog_Extension):
             )
             return
 
-        # 開播
         if not voice_client.is_playing():
             self.player.play_next(voice_client)
 
@@ -1022,7 +1012,7 @@ class Music(Cog_Extension):
             await interaction.response.send_message("⚠️ 本伺服器的歌單是空的。")
             return
 
-        # 先嘗試分段傳送（避免 2000 字上限）
+        # 先嘗試分段傳送
         CHUNK_CHAR = 1900
         header = "📀 本伺服器歌單內容："
         idx = 0
@@ -1060,19 +1050,16 @@ class Music(Cog_Extension):
             )
             return
 
-        # 正在播放 → 暫停
         if voice_client.is_playing():
             voice_client.pause()
             await interaction.response.send_message("⏸️ 已暫停播放。", ephemeral=True)
             return
 
-        # 已暫停 → 繼續
         if voice_client.is_paused():
             voice_client.resume()
             await interaction.response.send_message("▶️ 已繼續播放。", ephemeral=True)
             return
 
-        # 沒有正在播放的來源
         await interaction.response.send_message(
             "⚠️ 目前沒有正在播放的音樂。", ephemeral=True
         )
@@ -1081,7 +1068,7 @@ class Music(Cog_Extension):
         name="panel", description="顯示音樂控制面板（公開訊息，全員可操作）"
     )
     async def panel(self, interaction: discord.Interaction):
-        # 必須在語音頻道
+
         if interaction.user.voice is None:
             await interaction.response.send_message(
                 "❌ 你尚未加入語音頻道！", ephemeral=True
@@ -1091,26 +1078,26 @@ class Music(Cog_Extension):
         voice_channel = interaction.user.voice.channel
         vc = interaction.guild.voice_client
 
-        # 先 defer，避免語音連線超過 3 秒導致互動過期
+        # 先 defer
         await interaction.response.defer(thinking=True)
 
         try:
             if vc is None:
-                # 沒有連線 → 直接照 join_test 的寫法連
+
                 vc = await voice_channel.connect(reconnect=False)
                 log.info(
                     f"[panel] 新語音連線 guild={interaction.guild.id} ch={voice_channel.id}"
                 )
 
             elif vc.channel != voice_channel:
-                # 已連到別的語音 → 移過來
+
                 await vc.move_to(voice_channel)
                 log.info(
                     f"[panel] 移動語音連線 guild={interaction.guild.id} ch={voice_channel.id}"
                 )
 
             elif not vc.is_connected():
-                # 有 vc 但掛掉了 → 重連
+
                 vc = await voice_channel.connect(reconnect=False)
                 log.info(
                     f"[panel] 重新建立語音連線 guild={interaction.guild.id} ch={voice_channel.id}"
@@ -1121,10 +1108,8 @@ class Music(Cog_Extension):
             await interaction.followup.send(f"❌ 無法連線語音頻道：{e}", ephemeral=True)
             return
 
-        # 語音連線成功 → 建立或更新面板
         await self._send_or_replace_panel(interaction, vc)
 
-    # 在 Music Cog 裡補一支指令（或覆蓋你現有的）
     @app_commands.command(name="nowplaying", description="顯示目前正在播放的歌曲")
     async def nowplaying(self, interaction: discord.Interaction):
         vc = interaction.guild.voice_client
@@ -1140,7 +1125,6 @@ class Music(Cog_Extension):
         }
         log.info(f"[NOW CMD] guild={gid} vc_state={vc_state} now_playing={np}")
 
-        # 把判斷邏輯也寫到訊息，幫你對比
         debug_lines = [
             f"vc.exist={vc_state['exist']}, connected={vc_state['connected']}, "
             f"playing={vc_state['playing']}, paused={vc_state['paused']}, "

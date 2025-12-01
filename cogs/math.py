@@ -12,12 +12,12 @@ from core.log_utils import append_log
 
 class RPSGame:  # Rock-Paper-Scissors Game
     def __init__(self):
-        self.players = {}  # 玩家選擇
+        self.players = {} 
         self.choices = {"剪刀": "✌️", "石頭": "✊", "布": "✋"}
-        self.started = False  # 遊戲是否開始
+        self.started = False  
 
     def add_player(self, player: discord.Member):
-        if player.id not in self.players:  # 玩家加入但尚未出拳
+        if player.id not in self.players:  
             self.players[player.id] = None
             return True
         return False
@@ -32,8 +32,8 @@ class RPSGame:  # Rock-Paper-Scissors Game
         if not self.all_players_chosen():
             return None  # 尚未全員選擇
 
-        choices = list(self.players.values())  # 取得所有玩家的出拳
-        unique_choices = set(choices)  # 所有人選擇的集合
+        choices = list(self.players.values())  
+        unique_choices = set(choices)  
 
         # 如果所有人選擇相同->集合長度為1
         # 如果出現剪刀、石頭、布三種手勢->集合長度為3
@@ -60,7 +60,7 @@ class RPSGame:  # Rock-Paper-Scissors Game
 
 class RPSView(discord.ui.View):  # 剪刀石頭布的按鈕
     def __init__(self, game: RPSGame):
-        super().__init__()  # 呼叫 父類別 discord.ui.View 的建構子（初始化方法）
+        super().__init__()  ）
         self.game = game
 
     @discord.ui.button(label="加入遊戲", style=discord.ButtonStyle.secondary)
@@ -125,7 +125,7 @@ class RPSChoiceView(discord.ui.View):
 
             choices_text = "\n".join(
                 f"<@{pid}> 選擇了 {self.game.choices[choice]}"
-                for pid, choice in self.game.players.items()  # 所有玩家的選擇情況
+                for pid, choice in self.game.players.items()  
             )
 
             if result == "再猜一次!":
@@ -143,7 +143,7 @@ class RPSChoiceView(discord.ui.View):
 
     @discord.ui.button(
         label="剪刀", style=discord.ButtonStyle.primary, emoji="✌️"
-    )  # primary->藍色
+    )  
     async def scissors(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
@@ -151,13 +151,13 @@ class RPSChoiceView(discord.ui.View):
 
     @discord.ui.button(
         label="石頭", style=discord.ButtonStyle.success, emoji="✊"
-    )  # success->綠色
+    )  
     async def rock(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_choice(interaction, "石頭")
 
     @discord.ui.button(
         label="布", style=discord.ButtonStyle.danger, emoji="✋"
-    )  # danger->紅色
+    )  
     async def paper(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_choice(interaction, "布")
 
@@ -167,7 +167,7 @@ class RPSCog(commands.Cog):
         self.bot = bot
 
 
-# 1. VoteData（資料模型）
+
 class VoteData:
     def __init__(
         self,
@@ -217,7 +217,7 @@ class VoteData:
         return result
 
 
-# 2. VoteButton & VoteOptionView（投票按鈕）
+
 class VoteButton(discord.ui.Button):
     def __init__(self, option: str, vote_data: VoteData):
         super().__init__(label=option, style=discord.ButtonStyle.primary)
@@ -227,12 +227,10 @@ class VoteButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         self.vote_data.vote(interaction.user.id, self.option)
 
-        # 回覆投票者
         await interaction.response.send_message(
             f"你已投票給：**{self.option}** ✅", ephemeral=True
         )
 
-        # 🔍 投票動作寫入紀錄
         append_log(
             "vote.log",
             [
@@ -259,7 +257,7 @@ class VoteOptionView(discord.ui.View):
             self.add_item(VoteButton(option, self.vote_data))
 
 
-# 3. 新增／刪除／清除選項（Modals & Views）
+
 class AddOptionModal(discord.ui.Modal, title="新增投票選項"):
     option = discord.ui.TextInput(label="請輸入選項內容", max_length=100)
 
@@ -278,7 +276,6 @@ class AddOptionModal(discord.ui.Modal, title="新增投票選項"):
         self.vote_data.add_option(new_option)
         self.vote_view.update_buttons()
 
-        # defer — 之後會 followup
         await interaction.response.defer(ephemeral=True)
 
         # 刪除舊選項訊息
@@ -288,7 +285,7 @@ class AddOptionModal(discord.ui.Modal, title="新增投票選項"):
             except discord.NotFound:
                 pass
 
-        # 發送新選項訊息
+
         new_msg = await interaction.followup.send(view=self.vote_view)
         self.vote_view.options_message = new_msg
 
@@ -352,7 +349,6 @@ class ClearAllOptionsView(discord.ui.View):
 
         await interaction.response.defer(ephemeral=True)
 
-        # 🔴 在清空之前先寫 log（或清空之後也可以，差別不大）
         append_log(
             "vote.log",
             [
@@ -509,7 +505,6 @@ class VoteControlView(discord.ui.View):
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 
-# 5. 投票設定頁（VoteSettingsView）
 class VoteSettingsView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -547,7 +542,7 @@ class VoteSettingsView(discord.ui.View):
         )
 
 
-# 6. 輸入投票主題（InputTitleModal）
+
 class InputTitleModal(discord.ui.Modal, title="輸入投票主題"):
     title_input = discord.ui.TextInput(label="投票主題", max_length=200)
 
@@ -570,7 +565,6 @@ class InputTitleModal(discord.ui.Modal, title="輸入投票主題"):
         vote_view = VoteOptionView(vote_data)
         control_view = VoteControlView(vote_data)
 
-        # 🔍 建立投票時寫入紀錄
         append_log(
             "vote.log",
             [
@@ -584,8 +578,6 @@ class InputTitleModal(discord.ui.Modal, title="輸入投票主題"):
                 f"Allow Remove Option : {self.allow_remove}",
             ],
         )
-
-        # 發送控制台
         await interaction.response.send_message(
             f"📢 **{self.title_input.value}** 開始投票！\n請使用下方按鈕管理投票或投票。",
             view=control_view,
@@ -597,7 +589,7 @@ class InputTitleModal(discord.ui.Modal, title="輸入投票主題"):
         vote_view.options_message = msg
 
 
-# 7. Cog（入口點）
+
 class VoteCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -608,7 +600,6 @@ class VoteCog(commands.Cog):
 
 class RoleButton(discord.ui.Button):
     def __init__(self, role: discord.Role):
-        # 按鈕標籤 = 身分組名稱，顏色固定用藍色就好
         super().__init__(label=role.name, style=discord.ButtonStyle.primary)
         self.role = role
 
@@ -617,7 +608,6 @@ class RoleButton(discord.ui.Button):
         role = self.role
         guild = interaction.guild
 
-        # 取得機器人在這個伺服器的身分
         bot_member = guild.me
 
         # 檢查是不是有「管理身分組」權限
@@ -637,7 +627,7 @@ class RoleButton(discord.ui.Button):
             )
             return
 
-        # 加或移除角色
+
         if role in member.roles:
             await member.remove_roles(role, reason="自助移除身分組")
             msg = f"❌ 你已移除身分組 **{role.name}**"
@@ -645,7 +635,7 @@ class RoleButton(discord.ui.Button):
             await member.add_roles(role, reason="自助領取身分組")
             msg = f"✅ 你已領取身分組 **{role.name}**"
 
-        # ✅ 不動原本的面板，只給這個人看結果
+
         await interaction.response.send_message(msg, ephemeral=True)
 
 
@@ -778,15 +768,11 @@ class Math(Cog_Extension):
         roles = guild.roles
 
         # 🔹 自動抓「這個伺服器」裡可領的身分組：
-        # 1. 不是 @everyone
-        # 2. 不是整合/managed 身分組（給別的 bot 用的那種）
-        # 3. 排在機器人最高身分組下面（不然 bot 管不到）
-        # 4. （可選）名字前面有特定前綴，例如「自取-」
+        #  不是整合/managed 身分組
         claimable_roles = [
             r
             for r in roles
             if not r.managed and r.name != "@everyone" and r < bot_member.top_role
-            # and r.name.startswith("自取-") # 前綴控制 需要時啟用
         ]
 
         if not claimable_roles:

@@ -137,7 +137,7 @@ class Playlist(Cog_Extension):
         cursor.execute("DELETE FROM songs WHERE id = ?", (song_id,))
         conn.commit()
 
-        # 如果清單已空，刪除 playlist（維持原本行為）
+        # 如果清單已空，刪除 playlist
         cursor.execute(
             """
             SELECT COUNT(*) FROM songs
@@ -177,7 +177,7 @@ class Playlist(Cog_Extension):
         cursor.execute("DELETE FROM songs WHERE id = ?", (song_id,))
         conn.commit()
 
-        # 若歌單空了就清掉 playlist（維持你原本的行為）
+        # 若歌單空了就清掉 playlist
         cursor.execute(
             """
             SELECT COUNT(*) FROM songs
