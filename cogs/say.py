@@ -4,6 +4,7 @@ from discord import app_commands
 import json
 import asyncio
 from core.classes import Cog_Extension
+from core.log_utils import append_log
 
 
 class Say(Cog_Extension):
@@ -48,7 +49,17 @@ class Say(Cog_Extension):
     async def say(self, interaction: discord.Interaction, msg: str):
         await interaction.response.send_message("訊息成功", ephemeral=True)
         await interaction.channel.send(msg)
-        # await interaction.followup.send(msg, silent=True)
+
+        # 🔍 寫入匿名留言紀錄檔
+        append_log(
+            "anonymous_messages.log",
+            [
+                f"Guild : {interaction.guild.name} ({interaction.guild_id})",
+                f"Channel : {interaction.channel} ({interaction.channel.id})",
+                f"User : {interaction.user} ({interaction.user.id})",
+                f"Content : {msg}",
+            ],
+        )
 
 
 async def setup(bot):

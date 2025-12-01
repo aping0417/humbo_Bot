@@ -1,12 +1,13 @@
 import discord
 from discord.ext import commands
-from discord import app_commands  # 斜線指令
-import json  # 設定檔、資料儲存
-import asyncio  # 等待、延遲
+from discord import app_commands
+import json
+import asyncio
 import random
 from core.classes import Cog_Extension
-import re  # 字串比對、驗證格式
-from collections import defaultdict  # 建立具有預設值的字典
+import re
+from collections import defaultdict
+from core.log_utils import append_log
 
 
 class RPSGame:  # Rock-Paper-Scissors Game
@@ -225,8 +226,23 @@ class VoteButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         self.vote_data.vote(interaction.user.id, self.option)
+
+        # 回覆投票者
         await interaction.response.send_message(
             f"你已投票給：**{self.option}** ✅", ephemeral=True
+        )
+
+        # 🔍 投票動作寫入紀錄
+        append_log(
+            "vote.log",
+            [
+                "【投票動作】",
+                f"Guild : {interaction.guild.name} ({interaction.guild_id})",
+                f"Channel : {interaction.channel} ({interaction.channel.id})",
+                f"Title : {self.vote_data.title}",
+                f"User : {interaction.user} ({interaction.user.id})",
+                f"Option : {self.option}",
+            ],
         )
 
 
@@ -541,6 +557,21 @@ class InputTitleModal(discord.ui.Modal, title="輸入投票主題"):
 
         vote_view = VoteOptionView(vote_data)
         control_view = VoteControlView(vote_data)
+
+        # 🔍 建立投票時寫入紀錄
+        append_log(
+            "vote.log",
+            [
+                "【建立投票】",
+                f"Guild : {interaction.guild.name} ({interaction.guild_id})",
+                f"Channel : {interaction.channel} ({interaction.channel.id})",
+                f"Author : {self.author} ({self.author.id})",
+                f"Title : {self.title_input.value}",
+                f"Anonymous : {self.is_anonymous}",
+                f"Allow Add Option : {self.allow_add}",
+                f"Allow Remove Option : {self.allow_remove}",
+            ],
+        )
 
         # 發送控制台
         await interaction.response.send_message(
