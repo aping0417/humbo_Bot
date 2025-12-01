@@ -84,13 +84,41 @@ def extract_spotify_track_info(url):
 
 
 async def add_input_to_guild_playlist(
-    player, playlist_manager, guild_id: str, raw: str, limit: int = MAX_BULK_ADD
+    player,
+    playlist_manager,
+    guild_id: str,
+    raw: str,
+    limit: int = MAX_BULK_ADD,
+    voice_client=None,
+    auto_play_first: bool = False,
 ):
+    """
+    auto_play_first: True 時，當成功加入「第一首歌」就會嘗試立刻播放，
+                     其餘歌曲繼續照常載入。
+    voice_client   : 要播放用的 vc（通常是 guild.voice_client）
+    """
     added, truncated = [], False
     playlist_manager.ensure_playlist_exists(guild_id)
 
+    # 這個 flag 用來確認「第一首」是否已經觸發過播放
+    first_started = False
+
+    def _maybe_autoplay_first():
+        nonlocal first_started
+        if (
+            auto_play_first
+            and not first_started
+            and voice_client
+            and voice_client.is_connected()
+            and not voice_client.is_playing()
+        ):
+            # 設定目前播放的歌單，讓 player 從這個 guild 的 DB 播
+            player.current_playlist_id = guild_id
+            player.play_next(voice_client)
+            first_started = True
+
     try:
-        # ▓▓ Spotify：track / playlist → 關鍵字 → ytsearch
+        # 🔹 Spotify：track / playlist → 關鍵字 → ytsearch
         if "open.spotify.com" in raw:
             keywords = extract_spotify_track_info(raw) or []
             if len(keywords) > limit:
@@ -102,9 +130,12 @@ async def add_input_to_guild_playlist(
                 playlist_manager.add_song(guild_id, title, audio_url)
                 added.append(title)
 
+                # ✅ 成功加進一首就嘗試啟動播放（只會觸發一次）
+                _maybe_autoplay_first()
+
             return len(added), added, truncated
 
-        # ▓▓ YouTube 播放清單 / Mix / Radio
+        # 🔹 YouTube 播放清單 / Mix / Radio
         if ("list=" in raw) or ("playlist?" in raw) or ("start_radio=1" in raw):
             is_mix = is_youtube_mix_or_radio(raw)
             per_limit = MAX_MIX_ITEMS if is_mix else MAX_PLAYLIST_ITEMS
@@ -122,6 +153,7 @@ async def add_input_to_guild_playlist(
 
             added = []
             skipped = 0
+
             items = itertools.islice(entries, per_limit) if per_limit else entries
 
             for video in items:
@@ -151,22 +183,17 @@ async def add_input_to_guild_playlist(
                 playlist_manager.add_song(guild_id, title2, audio_url)
                 added.append(title2)
 
+                # ✅ 第一首成功加入時就啟動播放
+                _maybe_autoplay_first()
+
             log.info(
                 f"[playlist] 加入 {len(added)} 首，略過 {skipped} 首 "
                 f"(total={total}, limit={per_limit}, truncated={truncated}, mix={is_mix})"
             )
             return len(added), added, truncated
 
-        # ▓▓ 其他情況：單首 YouTube 連結 或 關鍵字（自動 ytsearch）
-        audio_url, title = await player.download_audio_async(raw)
-        playlist_manager.add_song(guild_id, title, audio_url)
-        added.append(title)
-
-        return len(added), added, truncated
-
     except Exception as e:
         print(f"[add_input_to_guild_playlist] error: {e}")
-        # 就算出錯也要保證回傳 tuple
         return 0, added, truncated
 
 
@@ -395,14 +422,24 @@ class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
         guild_id = str(interaction.guild.id)
         raw = self.input.value.strip()
 
+        # 先拿現在的 voice_client，決定要不要自動播第一首
+        vc = interaction.guild.voice_client
+        auto_play_first = bool(vc and vc.is_connected() and not vc.is_playing())
+
         try:
-            # 寫入 DB（這段可能會慢）
+            # 寫入 DB，同時在內部處理「第一首就播」
             count, titles, truncated = await add_input_to_guild_playlist(
-                self.player, self.playlist_manager, guild_id, raw, limit=MAX_BULK_ADD
+                self.player,
+                self.playlist_manager,
+                guild_id,
+                raw,
+                limit=MAX_BULK_ADD,
+                voice_client=vc,
+                auto_play_first=auto_play_first,
             )
 
-            # 若目前沒有在播放 → 嘗試開播
-            vc = interaction.guild.voice_client
+            # 🔁（可選）保留一個保險機制：
+            # 如果前面因為某些原因沒啟動播放，但現在已經有歌，就在這裡再檢查一次。
             if (
                 vc
                 and vc.is_connected()
