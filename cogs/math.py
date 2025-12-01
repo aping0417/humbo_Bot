@@ -352,6 +352,18 @@ class ClearAllOptionsView(discord.ui.View):
 
         await interaction.response.defer(ephemeral=True)
 
+        # 🔴 在清空之前先寫 log（或清空之後也可以，差別不大）
+        append_log(
+            "vote.log",
+            [
+                "【刪除全部投票選項】",
+                f"Guild : {interaction.guild.name} ({interaction.guild_id})",
+                f"Channel : {interaction.channel} ({interaction.channel.id})",
+                f"User : {interaction.user} ({interaction.user.id})",
+                f"Title : {self.vote_data.title}",
+            ],
+        )
+
         # 清空資料
         self.vote_data.clear_options()
         self.vote_view.update_buttons()

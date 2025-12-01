@@ -48,18 +48,37 @@ class Say(Cog_Extension):
     @app_commands.describe(msg="愛講甚麼就講甚麼!")
     async def say(self, interaction: discord.Interaction, msg: str):
         await interaction.response.send_message("訊息成功", ephemeral=True)
-        await interaction.channel.send(msg)
 
-        # 🔍 寫入匿名留言紀錄檔
-        append_log(
-            "anonymous_messages.log",
-            [
-                f"Guild : {interaction.guild.name} ({interaction.guild_id})",
-                f"Channel : {interaction.channel} ({interaction.channel.id})",
-                f"User : {interaction.user} ({interaction.user.id})",
-                f"Content : {msg}",
-            ],
-        )
+        sent_msg: discord.Message = await interaction.channel.send(msg)
+
+        mentions = sent_msg.mentions
+
+        if mentions:
+            # 把被 mention 的成員整理成文字
+            mention_str = ", ".join(f"{m} ({m.id})" for m in mentions)
+
+            append_log(
+                "anonymous_messages.log",
+                [
+                    "【匿名留言（含 mention）】",
+                    f"Guild : {interaction.guild.name} ({interaction.guild_id})",
+                    f"Channel : {interaction.channel} ({interaction.channel.id})",
+                    f"Sender : {interaction.user} ({interaction.user.id})",
+                    f"Message : {msg}",
+                    f"Mentions : {mention_str}",
+                ],
+            )
+        else:
+            append_log(
+                "anonymous_messages.log",
+                [
+                    "【匿名留言】",
+                    f"Guild : {interaction.guild.name} ({interaction.guild_id})",
+                    f"Channel : {interaction.channel} ({interaction.channel.id})",
+                    f"Sender : {interaction.user} ({interaction.user.id})",
+                    f"Message : {msg}",
+                ],
+            )
 
 
 async def setup(bot):
