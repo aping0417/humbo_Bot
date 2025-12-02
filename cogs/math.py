@@ -12,12 +12,12 @@ from core.log_utils import append_log
 
 class RPSGame:  # Rock-Paper-Scissors Game
     def __init__(self):
-        self.players = {} 
+        self.players = {}
         self.choices = {"剪刀": "✌️", "石頭": "✊", "布": "✋"}
-        self.started = False  
+        self.started = False
 
     def add_player(self, player: discord.Member):
-        if player.id not in self.players:  
+        if player.id not in self.players:
             self.players[player.id] = None
             return True
         return False
@@ -32,8 +32,8 @@ class RPSGame:  # Rock-Paper-Scissors Game
         if not self.all_players_chosen():
             return None  # 尚未全員選擇
 
-        choices = list(self.players.values())  
-        unique_choices = set(choices)  
+        choices = list(self.players.values())
+        unique_choices = set(choices)
 
         # 如果所有人選擇相同->集合長度為1
         # 如果出現剪刀、石頭、布三種手勢->集合長度為3
@@ -60,7 +60,7 @@ class RPSGame:  # Rock-Paper-Scissors Game
 
 class RPSView(discord.ui.View):  # 剪刀石頭布的按鈕
     def __init__(self, game: RPSGame):
-        super().__init__()  ）
+        super().__init__()
         self.game = game
 
     @discord.ui.button(label="加入遊戲", style=discord.ButtonStyle.secondary)
@@ -125,7 +125,7 @@ class RPSChoiceView(discord.ui.View):
 
             choices_text = "\n".join(
                 f"<@{pid}> 選擇了 {self.game.choices[choice]}"
-                for pid, choice in self.game.players.items()  
+                for pid, choice in self.game.players.items()
             )
 
             if result == "再猜一次!":
@@ -141,23 +141,17 @@ class RPSChoiceView(discord.ui.View):
                     f"{choices_text}\n\n🎉 {result}", silent=True
                 )
 
-    @discord.ui.button(
-        label="剪刀", style=discord.ButtonStyle.primary, emoji="✌️"
-    )  
+    @discord.ui.button(label="剪刀", style=discord.ButtonStyle.primary, emoji="✌️")
     async def scissors(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
         await self.handle_choice(interaction, "剪刀")
 
-    @discord.ui.button(
-        label="石頭", style=discord.ButtonStyle.success, emoji="✊"
-    )  
+    @discord.ui.button(label="石頭", style=discord.ButtonStyle.success, emoji="✊")
     async def rock(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_choice(interaction, "石頭")
 
-    @discord.ui.button(
-        label="布", style=discord.ButtonStyle.danger, emoji="✋"
-    )  
+    @discord.ui.button(label="布", style=discord.ButtonStyle.danger, emoji="✋")
     async def paper(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.handle_choice(interaction, "布")
 
@@ -165,7 +159,6 @@ class RPSChoiceView(discord.ui.View):
 class RPSCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-
 
 
 class VoteData:
@@ -217,7 +210,6 @@ class VoteData:
         return result
 
 
-
 class VoteButton(discord.ui.Button):
     def __init__(self, option: str, vote_data: VoteData):
         super().__init__(label=option, style=discord.ButtonStyle.primary)
@@ -257,7 +249,6 @@ class VoteOptionView(discord.ui.View):
             self.add_item(VoteButton(option, self.vote_data))
 
 
-
 class AddOptionModal(discord.ui.Modal, title="新增投票選項"):
     option = discord.ui.TextInput(label="請輸入選項內容", max_length=100)
 
@@ -284,7 +275,6 @@ class AddOptionModal(discord.ui.Modal, title="新增投票選項"):
                 await self.vote_view.options_message.delete()
             except discord.NotFound:
                 pass
-
 
         new_msg = await interaction.followup.send(view=self.vote_view)
         self.vote_view.options_message = new_msg
@@ -542,7 +532,6 @@ class VoteSettingsView(discord.ui.View):
         )
 
 
-
 class InputTitleModal(discord.ui.Modal, title="輸入投票主題"):
     title_input = discord.ui.TextInput(label="投票主題", max_length=200)
 
@@ -589,7 +578,6 @@ class InputTitleModal(discord.ui.Modal, title="輸入投票主題"):
         vote_view.options_message = msg
 
 
-
 class VoteCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -627,14 +615,12 @@ class RoleButton(discord.ui.Button):
             )
             return
 
-
         if role in member.roles:
             await member.remove_roles(role, reason="自助移除身分組")
             msg = f"❌ 你已移除身分組 **{role.name}**"
         else:
             await member.add_roles(role, reason="自助領取身分組")
             msg = f"✅ 你已領取身分組 **{role.name}**"
-
 
         await interaction.response.send_message(msg, ephemeral=True)
 
