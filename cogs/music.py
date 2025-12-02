@@ -75,7 +75,8 @@ def extract_spotify_track_info(url):
             for item in playlist["items"]:
                 track = item.get("track")
                 if track and track.get("name") and track.get("artists"):
-                    result.append(f"{track['name']} {track['artists'][0]['name']}")
+                    result.append(
+                        f"{track['name']} {track['artists'][0]['name']}")
             return result
 
     except Exception as e:
@@ -112,13 +113,12 @@ async def add_input_to_guild_playlist(
             and voice_client.is_connected()
             and not voice_client.is_playing()
         ):
-
             player.current_playlist_id = guild_id
             player.play_next(voice_client)
             first_started = True
 
     try:
-        #  Spotify：track / playlist → 關鍵字 → ytsearch
+        # 🔹 1) Spotify：track / playlist → 關鍵字 → ytsearch
         if "open.spotify.com" in raw:
             keywords = extract_spotify_track_info(raw) or []
             if len(keywords) > limit:
@@ -129,13 +129,11 @@ async def add_input_to_guild_playlist(
                 audio_url, title = await player.download_audio_async(f"ytsearch:{kw}")
                 playlist_manager.add_song(guild_id, title, audio_url)
                 added.append(title)
-
-                # 成功加進就嘗試啟動播放
                 _maybe_autoplay_first()
 
             return len(added), added, truncated
 
-        # 🔹 YouTube 播放清單 / Mix / Radio
+        # 🔹 2) YouTube 播放清單 / Mix / Radio
         if ("list=" in raw) or ("playlist?" in raw) or ("start_radio=1" in raw):
             is_mix = is_youtube_mix_or_radio(raw)
             per_limit = MAX_MIX_ITEMS if is_mix else MAX_PLAYLIST_ITEMS
@@ -154,7 +152,8 @@ async def add_input_to_guild_playlist(
             added = []
             skipped = 0
 
-            items = itertools.islice(entries, per_limit) if per_limit else entries
+            items = itertools.islice(
+                entries, per_limit) if per_limit else entries
 
             for video in items:
                 vid = video.get("id")
@@ -182,8 +181,6 @@ async def add_input_to_guild_playlist(
 
                 playlist_manager.add_song(guild_id, title2, audio_url)
                 added.append(title2)
-
-                # 成功加入時就啟動播放
                 _maybe_autoplay_first()
 
             log.info(
@@ -191,6 +188,14 @@ async def add_input_to_guild_playlist(
                 f"(total={total}, limit={per_limit}, truncated={truncated}, mix={is_mix})"
             )
             return len(added), added, truncated
+
+        # 🔹 3) 其他情況：當作「單首 / 關鍵字」處理
+        #    交給 player.download_audio 內部去處理 ytsearch 或單純 URL。
+        audio_url, title = await player.download_audio_async(raw)
+        playlist_manager.add_song(guild_id, title, audio_url)
+        added.append(title)
+        _maybe_autoplay_first()
+        return len(added), added, truncated
 
     except Exception as e:
         print(f"[add_input_to_guild_playlist] error: {e}")
@@ -300,11 +305,13 @@ class MusicPlayer:
 
         try:
             # 設定現在播放
-            self.now_playing = {"title": title, "url": url, "playlist": playlist_name}
+            self.now_playing = {"title": title,
+                                "url": url, "playlist": playlist_name}
             source = discord.FFmpegPCMAudio(url, **ffmpeg_options)
             voice_client.play(
                 source,
-                after=lambda e: self._after_song(e, voice_client, playlist_name, url),
+                after=lambda e: self._after_song(
+                    e, voice_client, playlist_name, url),
             )
             log.info(f"▶️ 正在播放：{title}")
 
@@ -423,7 +430,8 @@ class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
 
         # 先拿現在的 voice_client，決定要不要自動播第一首
         vc = interaction.guild.voice_client
-        auto_play_first = bool(vc and vc.is_connected() and not vc.is_playing())
+        auto_play_first = bool(vc and vc.is_connected()
+                               and not vc.is_playing())
 
         try:
             # 寫入 DB，同時在內部處理
@@ -444,7 +452,8 @@ class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
                 and vc.is_connected()
                 and not vc.is_playing()
                 and (
-                    self.player.play_queue or self.playlist_manager.get_songs(guild_id)
+                    self.player.play_queue or self.playlist_manager.get_songs(
+                        guild_id)
                 )
             ):
                 self.player.current_playlist_id = guild_id
@@ -456,7 +465,8 @@ class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
                     "❌ 沒有成功加入任何歌曲。", ephemeral=True
                 )
             else:
-                joined = "、".join(titles[:3]) + ("…" if len(titles) > 3 else "")
+                joined = "、".join(titles[:3]) + \
+                    ("…" if len(titles) > 3 else "")
                 extra = (
                     f"（已達上限 {MAX_BULK_ADD} 首，後續未加入）" if truncated else ""
                 )
@@ -851,7 +861,7 @@ class Music(Cog_Extension):
     ) -> str:
         """把 titles 轉成可顯示文字；可指定起始索引與顯示上限"""
         if limit is not None:
-            subset = titles[start : start + limit]
+            subset = titles[start: start + limit]
         else:
             subset = titles
         lines = [f"{i+1+start}. {t}" for i, t in enumerate(subset)]
@@ -898,7 +908,8 @@ class Music(Cog_Extension):
     async def add_song(self, interaction: discord.Interaction, url: str):
         await interaction.response.defer(thinking=True)
         guild_id = str(interaction.guild.id)
-        log.info(f"[add_song] guild={guild_id} user={interaction.user} url={url}")
+        log.info(
+            f"[add_song] guild={guild_id} user={interaction.user} url={url}")
         self.playlist_manager.ensure_playlist_exists(guild_id)
 
         try:
@@ -937,7 +948,8 @@ class Music(Cog_Extension):
                     truncated = bool(per_limit and total > per_limit)
 
                     added_count = 0
-                    it = itertools.islice(entries, per_limit) if per_limit else entries
+                    it = itertools.islice(
+                        entries, per_limit) if per_limit else entries
                     for video in it:
                         video_id = video.get("id")
                         if not video_id:
