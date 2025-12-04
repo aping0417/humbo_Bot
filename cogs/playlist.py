@@ -63,7 +63,7 @@ class Playlist(Cog_Extension):
         conn.close()
 
     def get_songs(self, guild_id):
-        """獲取伺服器對應歌單內的歌曲"""
+        """獲取伺服器對應歌單內的歌曲（依加入順序）"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute(
@@ -71,7 +71,8 @@ class Playlist(Cog_Extension):
             SELECT songs.title, songs.url FROM songs
             JOIN playlists ON songs.playlist_id = playlists.id
             WHERE playlists.guild_id = ?
-        """,
+            ORDER BY songs.id ASC
+            """,
             (guild_id,),
         )
         songs = cursor.fetchall()
@@ -193,6 +194,65 @@ class Playlist(Cog_Extension):
 
         conn.close()
         return title, url
+
+    def get_song_count(self, guild_id) -> int:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT COUNT(*) FROM songs
+            JOIN playlists ON songs.playlist_id = playlists.id
+            WHERE playlists.guild_id = ?
+            """,
+            (guild_id,),
+        )
+        n = cursor.fetchone()[0]
+        conn.close()
+        return int(n)
+
+    def remove_song_at(self, guild_id: str, index_1_based: int):
+        """依序號刪除（1 起算）。成功回傳 (title, url)，否則回傳 None。"""
+        if index_1_based <= 0:
+            return None
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM playlists WHERE guild_id = ?", (guild_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return None
+        playlist_id = row[0]
+
+        cursor.execute(
+            """
+            SELECT id, title, url
+            FROM songs
+            WHERE playlist_id = ?
+            ORDER BY id ASC
+            LIMIT 1 OFFSET ?
+            """,
+            (playlist_id, index_1_based - 1),
+        )
+        song = cursor.fetchone()
+        if not song:
+            conn.close()
+            return None
+
+        song_id, title, url = song
+        cursor.execute("DELETE FROM songs WHERE id = ?", (song_id,))
+        conn.commit()
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM songs WHERE playlist_id = ?", (playlist_id,)
+        )
+        left = cursor.fetchone()[0]
+        if left == 0:
+            cursor.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,))
+            conn.commit()
+
+        conn.close()
+        return (title, url)
 
 
 async def setup(bot):

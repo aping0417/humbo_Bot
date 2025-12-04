@@ -75,8 +75,7 @@ def extract_spotify_track_info(url):
             for item in playlist["items"]:
                 track = item.get("track")
                 if track and track.get("name") and track.get("artists"):
-                    result.append(
-                        f"{track['name']} {track['artists'][0]['name']}")
+                    result.append(f"{track['name']} {track['artists'][0]['name']}")
             return result
 
     except Exception as e:
@@ -152,8 +151,7 @@ async def add_input_to_guild_playlist(
             added = []
             skipped = 0
 
-            items = itertools.islice(
-                entries, per_limit) if per_limit else entries
+            items = itertools.islice(entries, per_limit) if per_limit else entries
 
             for video in items:
                 vid = video.get("id")
@@ -305,13 +303,11 @@ class MusicPlayer:
 
         try:
             # 設定現在播放
-            self.now_playing = {"title": title,
-                                "url": url, "playlist": playlist_name}
+            self.now_playing = {"title": title, "url": url, "playlist": playlist_name}
             source = discord.FFmpegPCMAudio(url, **ffmpeg_options)
             voice_client.play(
                 source,
-                after=lambda e: self._after_song(
-                    e, voice_client, playlist_name, url),
+                after=lambda e: self._after_song(e, voice_client, playlist_name, url),
             )
             log.info(f"▶️ 正在播放：{title}")
 
@@ -430,8 +426,7 @@ class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
 
         # 先拿現在的 voice_client，決定要不要自動播第一首
         vc = interaction.guild.voice_client
-        auto_play_first = bool(vc and vc.is_connected()
-                               and not vc.is_playing())
+        auto_play_first = bool(vc and vc.is_connected() and not vc.is_playing())
 
         try:
             # 寫入 DB，同時在內部處理
@@ -452,8 +447,7 @@ class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
                 and vc.is_connected()
                 and not vc.is_playing()
                 and (
-                    self.player.play_queue or self.playlist_manager.get_songs(
-                        guild_id)
+                    self.player.play_queue or self.playlist_manager.get_songs(guild_id)
                 )
             ):
                 self.player.current_playlist_id = guild_id
@@ -465,8 +459,7 @@ class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
                     "❌ 沒有成功加入任何歌曲。", ephemeral=True
                 )
             else:
-                joined = "、".join(titles[:3]) + \
-                    ("…" if len(titles) > 3 else "")
+                joined = "、".join(titles[:3]) + ("…" if len(titles) > 3 else "")
                 extra = (
                     f"（已達上限 {MAX_BULK_ADD} 首，後續未加入）" if truncated else ""
                 )
@@ -475,6 +468,73 @@ class AddSongModal(ui.Modal, title="新增歌曲到本伺服器歌單"):
                 )
         except Exception as e:
             await interaction.followup.send(f"⚠️ 載入失敗：{e}", ephemeral=True)
+
+
+class DeleteSongModal(ui.Modal, title="刪除指定序號的歌曲"):
+    def __init__(self, player, playlist_manager):
+        super().__init__(timeout=None)
+        self.player = player
+        self.playlist_manager = playlist_manager
+
+        self.input = ui.TextInput(
+            label="要刪除的序號",
+            placeholder="例如：1",
+            required=True,
+            max_length=6,
+        )
+        self.add_item(self.input)
+
+    async def on_submit(self, interaction: Interaction):
+        await interaction.response.defer(ephemeral=True, thinking=False)
+
+        guild_id = str(interaction.guild.id)
+        text = (self.input.value or "").strip()
+
+        # 確保是數字
+        if not text.isdigit():
+            await interaction.followup.send(
+                "❌ 請輸入正整數序號（1 起算）。", ephemeral=True
+            )
+            return
+
+        idx = int(text)
+        if idx <= 0:
+            await interaction.followup.send("❌ 序號必須 >= 1。", ephemeral=True)
+            return
+
+        try:
+            total = self.playlist_manager.get_song_count(guild_id)
+            if total == 0:
+                await interaction.followup.send("📭 歌單目前是空的。", ephemeral=True)
+                return
+            if idx > total:
+                await interaction.followup.send(
+                    f"❌ 超出範圍：目前共有 {total} 首，沒有第 {idx} 首。",
+                    ephemeral=True,
+                )
+                return
+
+            removed = self.playlist_manager.remove_song_at(guild_id, idx)
+            if not removed:
+                await interaction.followup.send(
+                    f"❌ 找不到第 {idx} 首歌曲（可能已被刪除）。", ephemeral=True
+                )
+                return
+
+            title, _url = removed
+            await interaction.followup.send(
+                f"🗑 已刪除第 {idx} 首：**{title}**", ephemeral=True
+            )
+
+            # （可選）刷新面板按鈕狀態
+            vc = interaction.guild.voice_client
+            if vc:
+                # player 是 MusicControlView / Music 持有的同一個 player
+                # 這裡沒有 self._refresh_panel_ui，交給外部呼叫；在下面按鈕中會處理
+                pass
+
+        except Exception as e:
+            await interaction.followup.send(f"❌ 刪除失敗：{e}", ephemeral=True)
 
 
 class MusicControlView(ui.View):
@@ -685,6 +745,12 @@ class MusicControlView(ui.View):
         modal = AddSongModal(self.player, self.player.playlist_manager)
         await interaction.response.send_modal(modal)
 
+    @ui.button(label="🗑 刪除歌曲", style=ButtonStyle.red, custom_id="remove_index")
+    async def remove_index(self, interaction: Interaction, button: ui.Button):
+        # 開啟序號輸入 Modal
+        modal = DeleteSongModal(self.player, self.player.playlist_manager)
+        await interaction.response.send_modal(modal)
+
     @ui.button(label="🎧 現正播放", style=ButtonStyle.gray, custom_id="now")
     async def now(self, interaction: Interaction, button: ui.Button):
         try:
@@ -861,7 +927,7 @@ class Music(Cog_Extension):
     ) -> str:
         """把 titles 轉成可顯示文字；可指定起始索引與顯示上限"""
         if limit is not None:
-            subset = titles[start: start + limit]
+            subset = titles[start : start + limit]
         else:
             subset = titles
         lines = [f"{i+1+start}. {t}" for i, t in enumerate(subset)]
@@ -908,8 +974,7 @@ class Music(Cog_Extension):
     async def add_song(self, interaction: discord.Interaction, url: str):
         await interaction.response.defer(thinking=True)
         guild_id = str(interaction.guild.id)
-        log.info(
-            f"[add_song] guild={guild_id} user={interaction.user} url={url}")
+        log.info(f"[add_song] guild={guild_id} user={interaction.user} url={url}")
         self.playlist_manager.ensure_playlist_exists(guild_id)
 
         try:
@@ -948,8 +1013,7 @@ class Music(Cog_Extension):
                     truncated = bool(per_limit and total > per_limit)
 
                     added_count = 0
-                    it = itertools.islice(
-                        entries, per_limit) if per_limit else entries
+                    it = itertools.islice(entries, per_limit) if per_limit else entries
                     for video in it:
                         video_id = video.get("id")
                         if not video_id:
@@ -1163,6 +1227,53 @@ class Music(Cog_Extension):
             msg + "\n```text\n" + "\n".join(debug_lines) + "\n```",
             ephemeral=True,
         )
+
+    @app_commands.command(
+        name="remove_song", description="依序號刪除歌單中的歌曲（1 起算）"
+    )
+    @app_commands.describe(index="要刪除的序號（1 起算）")
+    async def remove_song(self, interaction: discord.Interaction, index: int):
+        guild_id = str(interaction.guild.id)
+
+        if index <= 0:
+            await interaction.response.send_message(
+                "❌ 序號必須是正整數（1 起算）。", ephemeral=True
+            )
+            return
+
+        try:
+            total = self.playlist_manager.get_song_count(guild_id)
+            if total == 0:
+                await interaction.response.send_message(
+                    "📭 歌單目前是空的。", ephemeral=True
+                )
+                return
+            if index > total:
+                await interaction.response.send_message(
+                    f"❌ 超出範圍。歌單共有 {total} 首，沒有第 {index} 首。",
+                    ephemeral=True,
+                )
+                return
+
+            removed = self.playlist_manager.remove_song_at(guild_id, index)
+            if not removed:
+                await interaction.response.send_message(
+                    f"❌ 找不到第 {index} 首歌曲（可能已被刪除）。", ephemeral=True
+                )
+                return
+
+            title, _url = removed
+            await interaction.response.send_message(
+                f"🗑 已刪除第 {index} 首：**{title}**", ephemeral=True
+            )
+
+            # （可選）同步一下控制面板按鈕
+            vc = interaction.guild.voice_client
+            if vc:
+                await self._refresh_panel_ui(guild_id, vc)
+
+        except Exception as e:
+            await interaction.response.send_message(f"❌ 刪除失敗：{e}", ephemeral=True)
 
     # @app_commands.command()
     # async def skip(): ...
