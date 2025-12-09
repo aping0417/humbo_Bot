@@ -183,11 +183,20 @@ class VoteData:
         if option not in self.options:
             self.options.append(option)
 
-    def remove_option(self, option: str):
+    def remove_option(self, option: str) -> bool:
+        """
+        回傳 True = 刪除成功
+        回傳 False = 有人投過，禁止刪除
+        """
+        if option in self.votes and len(self.votes[option]) > 0:
+            return False  # 已有人投票，不能刪
+
         if option in self.options:
             self.options.remove(option)
         if option in self.votes:
             del self.votes[option]
+
+        return True
 
     def clear_options(self):
         self.options.clear()
@@ -303,7 +312,13 @@ class RemoveOptionSelect(discord.ui.Select):
         await interaction.response.defer(ephemeral=True)
 
         # 刪除資料
-        self.vote_data.remove_option(selected)
+        success = self.vote_data.remove_option(selected)
+        if not success:
+            await interaction.followup.send(
+                f"❌ **{selected}** 已經有人投票，無法刪除。",
+                ephemeral=True,
+            )
+            return
         self.vote_view.update_buttons()
 
         # 刪掉舊按鈕訊息
