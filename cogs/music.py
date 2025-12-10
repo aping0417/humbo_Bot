@@ -16,6 +16,8 @@ import logging
 import itertools
 from itertools import islice
 from urllib.parse import urlparse, parse_qs
+import math
+from collections import defaultdict
 
 load_dotenv()
 
@@ -242,6 +244,20 @@ class MusicPlayer:
             None  # {"title": str, "url": str | None, "playlist": str | None}
         )
         self.shuffle_map: dict[str, bool] = {}  # guild_id 隨機辨識
+        self._on_track_end = None  # async def on_track_end(guild_id): ...
+
+    def set_on_track_end(self, coro):
+        self._on_track_end = coro
+
+    def _after_song(self, error, voice_client, playlist_name, url):
+        if error:
+            log.error(f"⚠️ 播放錯誤：{error} | {url}")
+        loop = voice_client.client.loop
+        # 清票回呼（非必要，但建議）
+        if self._on_track_end:
+            gid = str(voice_client.guild.id)
+            loop.create_task(self._on_track_end(gid))
+        loop.call_soon_threadsafe(self.play_next, voice_client)
 
     def set_panel_updater(self, updater_coro):
         """註冊一個協程函式：async def updater_coro(guild_id, vc): ..."""
@@ -319,13 +335,6 @@ class MusicPlayer:
         except Exception as e:
             log.exception(f"❌ 播放失敗：{e}")
             self.play_next(voice_client)
-
-    def _after_song(self, error, voice_client, playlist_name, url):
-        if error:
-            log.error(f"⚠️ 播放錯誤：{error} | {url}")
-        # 下一首
-        loop = voice_client.client.loop
-        loop.call_soon_threadsafe(self.play_next, voice_client)
 
     def add_to_queue(self, url, title=None, playlist_name=None):
         if not title:
@@ -538,9 +547,10 @@ class DeleteSongModal(ui.Modal, title="刪除指定序號的歌曲"):
 
 
 class MusicControlView(ui.View):
-    def __init__(self, player):
+    def __init__(self, player, vote_gate):
         super().__init__(timeout=None)
         self.player = player
+        self.vote_gate = vote_gate
 
     # 小工具：找指定 custom_id 的按鈕
     def _btn(self, cid: str) -> ui.Button | None:
@@ -700,45 +710,98 @@ class MusicControlView(ui.View):
                     "❌ 我不在語音頻道裡。", ephemeral=True
                 )
                 return
-            if vc.is_playing() or vc.is_paused():
-                vc.stop()
-                await interaction.response.edit_message(view=self)
-                await interaction.followup.send(
-                    "⏭️ 已跳過。",
-                    ephemeral=True,
-                )
-            else:
+
+            ch = vc.channel
+            gid = str(interaction.guild.id)
+
+            # 沒在播也沒暫停 → 不需要投票
+            if not (vc.is_playing() or vc.is_paused()):
                 await interaction.response.send_message(
                     "⚠️ 沒有歌曲可跳過。", ephemeral=True
                 )
+                return
+
+            # ✅ 投票邏輯
+            need = self.vote_gate.need(ch)
+            if self.vote_gate.has_voted(gid, "skip", interaction.user.id):
+                cur = len(self.vote_gate.votes[gid]["skip"])
+                await interaction.response.send_message(
+                    f"你已投過票了。⏭️ 跳過 目前 {cur}/{need} 票", ephemeral=True
+                )
+                return
+
+            cur = self.vote_gate.add(gid, "skip", interaction.user.id)
+
+            # 達標：執行並清票
+            if cur >= need:
+                if vc.is_playing() or vc.is_paused():
+                    vc.stop()
+                self.vote_gate.clear(gid, "skip")
+                await interaction.response.send_message(
+                    "⏭️ 票數達標，已跳過。", ephemeral=False
+                )
+            else:
+                await interaction.response.send_message(
+                    f"⏭️ 已登記你的跳過票：{cur}/{need}。" f"（只計算同語音頻道真人）",
+                    ephemeral=True,
+                )
+
         except Exception as e:
             if not interaction.response.is_done():
-                await interaction.response.send_message(f"⚠️ 跳過失敗：{e}")
+                await interaction.response.send_message(
+                    f"⚠️ 跳過失敗：{e}", ephemeral=True
+                )
             else:
-                await interaction.followup.send(f"⚠️ 跳過失敗：{e}")
+                await interaction.followup.send(f"⚠️ 跳過失敗：{e}", ephemeral=True)
 
     # 停止
     @ui.button(label="⏹️ 停止", style=ButtonStyle.red, custom_id="stop")
     async def stop(self, interaction: Interaction, button: ui.Button):
         try:
             vc = interaction.guild.voice_client
-            if vc and vc.is_connected():
-                await vc.disconnect()
-                self._set_pause_visual(paused=False)
-                self._set_play_disabled(False)  # 可再次播放
-                await interaction.response.edit_message(view=self)
-                await interaction.followup.send(
-                    "⏹️ 已停止播放並離開語音頻道。", ephemeral=True
-                )
-            else:
+            if not vc or not vc.is_connected():
                 await interaction.response.send_message(
                     "⚠️ 我沒有連線到語音頻道。", ephemeral=True
                 )
+                return
+
+            ch = vc.channel
+            gid = str(interaction.guild.id)
+
+            need = self.vote_gate.need(ch)
+            if self.vote_gate.has_voted(gid, "stop", interaction.user.id):
+                cur = len(self.vote_gate.votes[gid]["stop"])
+                await interaction.response.send_message(
+                    f"你已投過票了。⏹️ 停止 目前 {cur}/{need} 票", ephemeral=True
+                )
+                return
+
+            cur = self.vote_gate.add(gid, "stop", interaction.user.id)
+
+            if cur >= need:
+                await vc.disconnect()
+                # 清票並同步 UI
+                self.vote_gate.clear(gid, "stop")
+                self._set_pause_visual(paused=False)
+                self._set_play_disabled(False)
+                if not interaction.response.is_done():
+                    await interaction.response.edit_message(view=self)
+                await interaction.followup.send(
+                    "⏹️ 票數達標，已停止並離開語音頻道。", ephemeral=False
+                )
+            else:
+                await interaction.response.send_message(
+                    f"⏹️ 已登記你的停止票：{cur}/{need}。" f"（只計算同語音頻道真人）",
+                    ephemeral=True,
+                )
+
         except Exception as e:
             if not interaction.response.is_done():
-                await interaction.response.send_message(f"⚠️ 停止失敗：{e}")
+                await interaction.response.send_message(
+                    f"⚠️ 停止失敗：{e}", ephemeral=True
+                )
             else:
-                await interaction.followup.send(f"⚠️ 停止失敗：{e}")
+                await interaction.followup.send(f"⚠️ 停止失敗：{e}", ephemeral=True)
 
     @ui.button(label="➕ 載入歌曲", style=ButtonStyle.green, custom_id="add")
     async def add(self, interaction: Interaction, button: ui.Button):
@@ -830,6 +893,41 @@ class MusicControlView(ui.View):
             await interaction.followup.send(f"⚠️ 讀取歌單失敗：{e}", ephemeral=True)
 
 
+class VoteGate:
+    """管理每個 guild 的 skip/stop 投票"""
+
+    def __init__(self):
+        # votes[guild_id][action] = set(user_ids)
+        self.votes = defaultdict(lambda: {"skip": set(), "stop": set()})
+
+    def _living_humans(self, voice_channel):
+        """回傳在此語音頻道內的真人(非bot)成員數"""
+        if not voice_channel:
+            return 0
+        return sum(1 for m in voice_channel.members if not m.bot)
+
+    def need(self, voice_channel):
+        """需要票數：ceil(真人數/2)"""
+        n = self._living_humans(voice_channel)
+        return max(1, math.ceil(n / 2))
+
+    def add(self, guild_id: str, action: str, user_id: int):
+        """新增一票；回傳目前已得票數"""
+        s = self.votes[guild_id][action]
+        s.add(user_id)
+        return len(s)
+
+    def has_voted(self, guild_id: str, action: str, user_id: int) -> bool:
+        return user_id in self.votes[guild_id][action]
+
+    def clear(self, guild_id: str, action: str | None = None):
+        if action:
+            self.votes[guild_id][action].clear()
+        else:
+            self.votes[guild_id]["skip"].clear()
+            self.votes[guild_id]["stop"].clear()
+
+
 class Music(Cog_Extension):
     def __init__(self, bot):
         super().__init__(bot)
@@ -837,13 +935,17 @@ class Music(Cog_Extension):
         self.playlist_manager = Playlist(bot)
         self.player = MusicPlayer(self.playlist_manager)
 
+        # ✅ 新增：投票器
+        self.vote_gate = VoteGate()
+        self.player.set_on_track_end(self._on_track_end_clear_votes)
+
         # 面板訊息管理
         self.panel_map: dict[str, tuple[int, int]] = {}
 
         self.player.set_panel_updater(self._refresh_panel_ui)
 
         # 註冊持久化 View
-        self.bot.add_view(MusicControlView(self.player))
+        self.bot.add_view(MusicControlView(self.player, self.vote_gate))
         print("✅ Music Cog 已註冊控制面板 View")
 
     async def __join(self, interaction: discord.Interaction):
@@ -869,7 +971,7 @@ class Music(Cog_Extension):
                 channel_id
             )
             msg = await channel.fetch_message(message_id)
-            view = MusicControlView(self.player)
+            view = MusicControlView(self.player, self.vote_gate)
             view.sync_with_voice(vc)
             await msg.edit(view=view)
         except Exception as e:
@@ -878,7 +980,7 @@ class Music(Cog_Extension):
     async def _send_or_replace_panel(self, interaction: discord.Interaction, vc):
         """發送或更新本公會唯一的公開控制面板訊息（已在 /panel 中 defer）"""
         guild_id = str(interaction.guild.id)
-        view = MusicControlView(self.player)
+        view = MusicControlView(self.player, self.vote_gate)
         view.sync_with_voice(vc)
 
         rec = self.panel_map.get(guild_id)
@@ -907,6 +1009,10 @@ class Music(Cog_Extension):
         log.info(
             f"[panel] 建立新控制面板 guild={guild_id} ch={sent.channel.id} msg={sent.id}"
         )
+
+    async def _on_track_end_clear_votes(self, guild_id: str):
+        # 曲目變更 → 清掉 skip 票即可；stop 留給使用時清
+        self.vote_gate.clear(guild_id, "skip")
 
     def _get_playlist_titles(self, guild_id: str) -> list[str]:
         """從 DB 讀出本伺服器歌單（只回傳 title list）"""
@@ -938,10 +1044,15 @@ class Music(Cog_Extension):
     async def leave(self, interaction: discord.Interaction):
         voice_client = interaction.guild.voice_client
         if voice_client is None:
-            await interaction.response.send_message("❌ 機器人不在語音頻道內！")
-        else:
-            await voice_client.disconnect()
-            await interaction.response.send_message("✅ 機器人已離開語音頻道！")
+            await interaction.response.send_message(
+                "❌ 機器人不在語音頻道內！", ephemeral=True
+            )
+            return
+        await voice_client.disconnect()
+        self.vote_gate.clear(str(interaction.guild.id))
+        await interaction.response.send_message(
+            "✅ 機器人已離開語音頻道！", ephemeral=True
+        )
 
     @app_commands.command(name="join", description="加入語音")
     async def join(self, interaction: discord.Interaction):
